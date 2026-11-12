@@ -1,0 +1,941 @@
+EVT004 TRANSITIONS — COMPACT DIAGNOSTIC
+=================================================================
+main.py SHA256: acb510fc1ffa287e786e86228fd1da133146df37114201c64394f4bf3c8bec9a
+presentation SHA256: d8a429a51a9aaeca3c63932569f82675480671883efbf6a1c9da12b336809e5e
+
+1. METHODS THAT ASSIGN current_screen
+=================================================================
+
+METHOD __init__: lines 324-541
+
+--- lines 502-512 ---
+  502:         video_path = os.path.join(base_dir, "assets", "video", "vhs_intro.mp4")
+  503:         if CV2_AVAILABLE and os.path.exists(video_path):
+  504:             try:
+  505:                 self.video = cv2.VideoCapture(video_path)
+  506:                 if self.video.isOpened():
+  507:                     self.current_screen = "intro"
+  508:                 else:
+  509:                     self.current_screen = "menu"
+  510:                     self.audio_box.play_menu_music()
+  511:             except Exception:
+  512:                 self.current_screen = "menu"
+
+--- lines 504-514 ---
+  504:             try:
+  505:                 self.video = cv2.VideoCapture(video_path)
+  506:                 if self.video.isOpened():
+  507:                     self.current_screen = "intro"
+  508:                 else:
+  509:                     self.current_screen = "menu"
+  510:                     self.audio_box.play_menu_music()
+  511:             except Exception:
+  512:                 self.current_screen = "menu"
+  513:                 self.audio_box.play_menu_music()
+  514:         else:
+
+--- lines 507-517 ---
+  507:                     self.current_screen = "intro"
+  508:                 else:
+  509:                     self.current_screen = "menu"
+  510:                     self.audio_box.play_menu_music()
+  511:             except Exception:
+  512:                 self.current_screen = "menu"
+  513:                 self.audio_box.play_menu_music()
+  514:         else:
+  515:             self.current_screen = "menu"
+  516:             self.audio_box.play_menu_music()
+  517: 
+
+--- lines 510-520 ---
+  510:                     self.audio_box.play_menu_music()
+  511:             except Exception:
+  512:                 self.current_screen = "menu"
+  513:                 self.audio_box.play_menu_music()
+  514:         else:
+  515:             self.current_screen = "menu"
+  516:             self.audio_box.play_menu_music()
+  517: 
+  518:         self.ctx = moderngl.create_context()
+  519:         self.program = self.ctx.program(
+  520:             vertex_shader='''
+
+METHOD _start_game: lines 623-640
+
+--- lines 629-639 ---
+  629:         if not self.player_name or not self.player_name.strip():
+  630:             w, h = self.screen.get_size()
+  631:             self.name_input_scene = NameInputScene((w, h), self.current_lang, self.menu_cursor)
+  632:             self.name_entry_active = True
+  633:             self.intro_slides_active = False
+  634:             self.current_screen = "game"
+  635:             self.crash_stage = 0
+  636:             return
+  637: 
+  638:         # Existing profiles resume their saved progress. A first-time name entry
+  639:         # or the admin panel's explicit New Game action goes through the slides.
+
+METHOD _begin_game_session: lines 642-703
+
+--- lines 656-666 ---
+  656:         self.secret_prompt_session.begin_session()
+  657:         self.channel_switch_active = False
+  658:         if self.settings_box.is_open:
+  659:             self.settings_box.close_dialog()
+  660:         self.audio_box.stop_music()
+  661:         self.current_screen = "game"
+  662:         self.crash_stage = 0
+  663:         self.fake_crash_start = 0
+  664:         self.game_view.recalculate_layout()
+  665:         self.game_view.target_scale = 1.0
+  666:         self.game_view.label_scale = 1.0
+
+METHOD _begin_intro_slides: lines 726-736
+
+--- lines 723-733 ---
+  723:         self.intro_slide_typewriter_accum = 0.0
+  724:         self.intro_slide_button_rect = None
+  725: 
+  726:     def _begin_intro_slides(self):
+  727:         self.audio_box.stop_music()
+  728:         self.current_screen = "game"
+  729:         self.crash_stage = 0
+  730:         self.channel_switch_active = False
+  731:         self.name_entry_active = False
+  732:         self.name_input_scene = None
+  733:         self.admin_panel_open = False
+
+METHOD _admin_start_new_game: lines 870-887
+
+--- lines 873-883 ---
+  873:         if self.game_logic.word_shock_active or self.event_lifecycle.is_tracked("EVT_002_WORD_SHOCK"):
+  874:             self._cancel_managed_word_shock(reason="ADMIN_NEW_GAME")
+  875:         self.admin_panel_open = False
+  876:         if self.settings_box.is_open:
+  877:             self.settings_box.close_dialog()
+  878:         self.current_screen = "game"
+  879:         self.crash_stage = 0
+  880:         self.channel_switch_active = False
+  881:         self.intro_slides_active = False
+  882:         self.audio_box.stop_music()
+  883:         w, h = self.screen.get_size()
+
+METHOD _handle_admin_panel_event: lines 2957-3077
+
+--- lines 2985-2995 ---
+ 2985:                     self._stop_roach_audio()
+ 2986:                 self.admin_panel_open = False
+ 2987:                 self.intro_slides_active = False
+ 2988:                 self.name_entry_active = False
+ 2989:                 self.name_input_scene = None
+ 2990:                 self.current_screen = "menu"
+ 2991:                 self.audio_box.stop_music()
+ 2992:                 self.audio_box.play_menu_music()
+ 2993:             elif action.startswith("phase_") or action == "final":
+ 2994:                 if not self._admin_phase_controls_available():
+ 2995:                     return True
+
+METHOD _handle_name_entry_events: lines 3173-3206
+
+--- lines 3176-3186 ---
+ 3176:         if event.type == pygame.KEYDOWN:
+ 3177:             result = self.name_input_scene.handle_keyboard(event)
+ 3178:             if result == "QUIT":
+ 3179:                 self.name_entry_active = False
+ 3180:                 self.name_input_scene = None
+ 3181:                 self.current_screen = "menu"
+ 3182:                 self.audio_box.play_menu_music()
+ 3183:             elif result == "DONE":
+ 3184:                 self._commit_player_name(self.name_input_scene.buffer)
+ 3185:         elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+ 3186:             self.menu_cursor.trigger_click_animation()
+
+--- lines 3191-3201 ---
+ 3191:             pos_y = int(mouse_pos[1] * (tex_h / h))
+ 3192:             result = self.name_input_scene.handle_mouse((pos_x, pos_y))
+ 3193:             if result == "QUIT":
+ 3194:                 self.name_entry_active = False
+ 3195:                 self.name_input_scene = None
+ 3196:                 self.current_screen = "menu"
+ 3197:                 self.audio_box.play_menu_music()
+ 3198:             elif result == "DONE":
+ 3199:                 self._commit_player_name(self.name_input_scene.buffer)
+ 3200:         elif event.type == pygame.MOUSEMOTION:
+ 3201:             w, h = self.screen.get_size()
+
+METHOD _handle_game_events: lines 3208-3730
+
+--- lines 3376-3386 ---
+ 3376:             if self.game_view.rect_back.collidepoint(pos):
+ 3377:                 if self.game_logic.roach_attack_active or self.event_lifecycle.is_tracked("EVT_001_ROACH_ATTACK"):
+ 3378:                     self._cancel_managed_roach_attack(reason="BACK_TO_MENU")
+ 3379:                 else:
+ 3380:                     self._stop_roach_audio()
+ 3381:                 self.current_screen = "menu"
+ 3382:                 self.audio_box.play_menu_music()
+ 3383:                 return
+ 3384:             elif self.game_view.rect_wallpaper.collidepoint(pos):
+ 3385:                 next_index = self.game_logic.wallpaper_index + 1
+ 3386:                 self.game_logic.set_wallpaper(next_index)
+
+METHOD _update_evt003: lines 4361-4412
+
+--- lines 4405-4415 ---
+ 4405:                 self.evt003_is_sandbox = False
+ 4406:                 if was_sandbox:
+ 4407:                     # Sandbox isolates persistent balance/history, not the visible game-over flow.
+ 4408:                     self._evt003_schedule_phase(self.game_logic.get_phase())
+ 4409:                     self.admin_panel_open = False
+ 4410:                 self.current_screen = "menu"
+ 4411:                 self.audio_box.play_menu_music()
+ 4412:             return
+ 4413: 
+ 4414:     def _update_game(self):
+ 4415:         if self.evt004_result_state is not None:
+
+METHOD run: lines 4771-4980
+
+--- lines 4831-4841 ---
+ 4831:                         self._handle_game_events(event)
+ 4832:                 elif self.current_screen == "intro":
+ 4833:                     if event.type == pygame.KEYDOWN and event.key == pygame.K_SPACE:
+ 4834:                         if self.video:
+ 4835:                             self.video.release()
+ 4836:                         self.current_screen = "menu"
+ 4837:                         self.audio_box.play_menu_music()
+ 4838:                     elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+ 4839:                         if self.video:
+ 4840:                             self.video.release()
+ 4841:                         self.current_screen = "menu"
+
+--- lines 4836-4846 ---
+ 4836:                         self.current_screen = "menu"
+ 4837:                         self.audio_box.play_menu_music()
+ 4838:                     elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+ 4839:                         if self.video:
+ 4840:                             self.video.release()
+ 4841:                         self.current_screen = "menu"
+ 4842:                         self.audio_box.play_menu_music()
+ 4843: 
+ 4844:             if self.current_screen == "intro" and self.video is not None:
+ 4845:                 ret, frame = self.video.read()
+ 4846:                 if ret:
+
+--- lines 4850-4860 ---
+ 4850:                     w, h = self.screen.get_size()
+ 4851:                     scaled = pygame.transform.scale(video_surf, (w, h))
+ 4852:                     self.screen_texture.write(pygame.image.tostring(scaled, 'RGBA', True))
+ 4853:                 else:
+ 4854:                     self.video.release()
+ 4855:                     self.current_screen = "menu"
+ 4856:                     self.audio_box.play_menu_music()
+ 4857:                 self.ctx.clear(0.0, 0.0, 0.0, 1.0)
+ 4858:                 self.screen_texture.use(0)
+ 4859:                 self.program['u_texture'] = 0
+ 4860:                 self.program['u_effects_enabled'] = 1.0 if self.effects_enabled else 0.0
+
+2. MENU / NEW GAME TRANSITION CALLS
+=================================================================
+
+METHOD __init__: lines 324-541
+CALL: play_menu_music
+
+--- lines 505-515 ---
+  505:                 self.video = cv2.VideoCapture(video_path)
+  506:                 if self.video.isOpened():
+  507:                     self.current_screen = "intro"
+  508:                 else:
+  509:                     self.current_screen = "menu"
+  510:                     self.audio_box.play_menu_music()
+  511:             except Exception:
+  512:                 self.current_screen = "menu"
+  513:                 self.audio_box.play_menu_music()
+  514:         else:
+  515:             self.current_screen = "menu"
+CALL: play_menu_music
+
+--- lines 508-518 ---
+  508:                 else:
+  509:                     self.current_screen = "menu"
+  510:                     self.audio_box.play_menu_music()
+  511:             except Exception:
+  512:                 self.current_screen = "menu"
+  513:                 self.audio_box.play_menu_music()
+  514:         else:
+  515:             self.current_screen = "menu"
+  516:             self.audio_box.play_menu_music()
+  517: 
+  518:         self.ctx = moderngl.create_context()
+CALL: play_menu_music
+
+--- lines 511-521 ---
+  511:             except Exception:
+  512:                 self.current_screen = "menu"
+  513:                 self.audio_box.play_menu_music()
+  514:         else:
+  515:             self.current_screen = "menu"
+  516:             self.audio_box.play_menu_music()
+  517: 
+  518:         self.ctx = moderngl.create_context()
+  519:         self.program = self.ctx.program(
+  520:             vertex_shader='''
+  521:                 #version 330
+
+METHOD _begin_game_session: lines 642-703
+CALL: play_game_music
+
+--- lines 697-707 ---
+  697:         self.subtitle_state_timer = 0.0
+  698:         self.subtitle_typewriter_timer = 0.0
+  699:         self.subtitle_next_idle_timer = 0.0
+  700:         self.code_init_active = False
+  701:         self._set_meme_phrase()
+  702:         self.audio_box.play_game_music()
+  703:         self._evt003_begin_gameplay_entry()
+  704: 
+  705:     def _get_intro_slides(self):
+  706:         # Slide copy is kept here so the initial onboarding can be revised without
+  707:         # changing localization data or any gameplay systems.
+
+METHOD _finish_evt004: lines 1488-1584
+CALL: play_game_music
+
+--- lines 1557-1567 ---
+ 1557:                     SaveManager.save_event_collection_state(progress=progress)
+ 1558:                 except Exception:
+ 1559:                     self.app_logger.exception("EVT_004 defeat collection save failed")
+ 1560:         try:
+ 1561:             self._stop_evt004_audio()
+ 1562:             self.audio_box.play_game_music()
+ 1563:         except Exception:
+ 1564:             self.app_logger.exception("EVT_004 audio restore failed")
+ 1565:         # Preserve the final dragon image before the runtime is released.
+ 1566:         self.evt004_result_dragon_surface = None
+ 1567:         if outcome in ("VICTORY", "DEFEAT") and self.evt004_runtime is not None:
+
+METHOD _handle_admin_panel_event: lines 2957-3077
+CALL: play_menu_music
+
+--- lines 2987-2997 ---
+ 2987:                 self.intro_slides_active = False
+ 2988:                 self.name_entry_active = False
+ 2989:                 self.name_input_scene = None
+ 2990:                 self.current_screen = "menu"
+ 2991:                 self.audio_box.stop_music()
+ 2992:                 self.audio_box.play_menu_music()
+ 2993:             elif action.startswith("phase_") or action == "final":
+ 2994:                 if not self._admin_phase_controls_available():
+ 2995:                     return True
+ 2996:                 phase_clicks = {
+ 2997:                     "phase_0": 0, "phase_1": 1500, "phase_2": 2000,
+
+METHOD _handle_name_entry_events: lines 3173-3206
+CALL: play_menu_music
+
+--- lines 3177-3187 ---
+ 3177:             result = self.name_input_scene.handle_keyboard(event)
+ 3178:             if result == "QUIT":
+ 3179:                 self.name_entry_active = False
+ 3180:                 self.name_input_scene = None
+ 3181:                 self.current_screen = "menu"
+ 3182:                 self.audio_box.play_menu_music()
+ 3183:             elif result == "DONE":
+ 3184:                 self._commit_player_name(self.name_input_scene.buffer)
+ 3185:         elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+ 3186:             self.menu_cursor.trigger_click_animation()
+ 3187:             w, h = self.screen.get_size()
+CALL: play_menu_music
+
+--- lines 3192-3202 ---
+ 3192:             result = self.name_input_scene.handle_mouse((pos_x, pos_y))
+ 3193:             if result == "QUIT":
+ 3194:                 self.name_entry_active = False
+ 3195:                 self.name_input_scene = None
+ 3196:                 self.current_screen = "menu"
+ 3197:                 self.audio_box.play_menu_music()
+ 3198:             elif result == "DONE":
+ 3199:                 self._commit_player_name(self.name_input_scene.buffer)
+ 3200:         elif event.type == pygame.MOUSEMOTION:
+ 3201:             w, h = self.screen.get_size()
+ 3202:             mouse_pos = event.pos
+
+METHOD _handle_game_events: lines 3208-3730
+CALL: play_menu_music
+
+--- lines 3377-3387 ---
+ 3377:                 if self.game_logic.roach_attack_active or self.event_lifecycle.is_tracked("EVT_001_ROACH_ATTACK"):
+ 3378:                     self._cancel_managed_roach_attack(reason="BACK_TO_MENU")
+ 3379:                 else:
+ 3380:                     self._stop_roach_audio()
+ 3381:                 self.current_screen = "menu"
+ 3382:                 self.audio_box.play_menu_music()
+ 3383:                 return
+ 3384:             elif self.game_view.rect_wallpaper.collidepoint(pos):
+ 3385:                 next_index = self.game_logic.wallpaper_index + 1
+ 3386:                 self.game_logic.set_wallpaper(next_index)
+ 3387:                 return
+
+METHOD _update_evt003: lines 4361-4412
+CALL: play_menu_music
+
+--- lines 4406-4416 ---
+ 4406:                 if was_sandbox:
+ 4407:                     # Sandbox isolates persistent balance/history, not the visible game-over flow.
+ 4408:                     self._evt003_schedule_phase(self.game_logic.get_phase())
+ 4409:                     self.admin_panel_open = False
+ 4410:                 self.current_screen = "menu"
+ 4411:                 self.audio_box.play_menu_music()
+ 4412:             return
+ 4413: 
+ 4414:     def _update_game(self):
+ 4415:         if self.evt004_result_state is not None:
+ 4416:             self._update_evt004_result_screen()
+
+METHOD run: lines 4771-4980
+CALL: play_menu_music
+
+--- lines 4832-4842 ---
+ 4832:                 elif self.current_screen == "intro":
+ 4833:                     if event.type == pygame.KEYDOWN and event.key == pygame.K_SPACE:
+ 4834:                         if self.video:
+ 4835:                             self.video.release()
+ 4836:                         self.current_screen = "menu"
+ 4837:                         self.audio_box.play_menu_music()
+ 4838:                     elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+ 4839:                         if self.video:
+ 4840:                             self.video.release()
+ 4841:                         self.current_screen = "menu"
+ 4842:                         self.audio_box.play_menu_music()
+CALL: play_menu_music
+
+--- lines 4837-4847 ---
+ 4837:                         self.audio_box.play_menu_music()
+ 4838:                     elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+ 4839:                         if self.video:
+ 4840:                             self.video.release()
+ 4841:                         self.current_screen = "menu"
+ 4842:                         self.audio_box.play_menu_music()
+ 4843: 
+ 4844:             if self.current_screen == "intro" and self.video is not None:
+ 4845:                 ret, frame = self.video.read()
+ 4846:                 if ret:
+ 4847:                     frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+CALL: play_menu_music
+
+--- lines 4851-4861 ---
+ 4851:                     scaled = pygame.transform.scale(video_surf, (w, h))
+ 4852:                     self.screen_texture.write(pygame.image.tostring(scaled, 'RGBA', True))
+ 4853:                 else:
+ 4854:                     self.video.release()
+ 4855:                     self.current_screen = "menu"
+ 4856:                     self.audio_box.play_menu_music()
+ 4857:                 self.ctx.clear(0.0, 0.0, 0.0, 1.0)
+ 4858:                 self.screen_texture.use(0)
+ 4859:                 self.program['u_texture'] = 0
+ 4860:                 self.program['u_effects_enabled'] = 1.0 if self.effects_enabled else 0.0
+ 4861:                 self.program['u_channel_switch'] = 0.0
+
+3. EVT004 RESULT SCREEN HOOKS
+=================================================================
+
+CALLS IN _finish_evt004:
+_start_evt004_result_screen at line 1581
+
+--- lines 1575-1587 ---
+ 1575:                 self.app_logger.exception("EVT_004 result dragon snapshot failed")
+ 1576:         self.evt004_runtime = None
+ 1577:         self.evt004_presentation = None
+ 1578:         self.evt004_instance_id = None
+ 1579:         self.evt004_started_at = 0.0
+ 1580:         if outcome in ("VICTORY", "DEFEAT"):
+ 1581:             self._start_evt004_result_screen(outcome)
+ 1582:         elif outcome == "CANCELLED":
+ 1583:             self._show_notification("EVT_004: ОТМЕНЕНО", duration=2000)
+ 1584:         self.secret_prompt_session.retry_after_event()
+ 1585: 
+ 1586:     def _start_evt004_result_screen(self, outcome):
+ 1587:         """Start the exclusive EVT_004 story ending screen."""
+
+CALLS IN _handle_evt004_result_event:
+_close_evt004_result_screen at line 1689
+
+--- lines 1683-1695 ---
+ 1683:             self.game_view.height = event.h
+ 1684:             self.game_view.recalculate_layout()
+ 1685:             return
+ 1686: 
+ 1687:         if event.type == pygame.KEYDOWN:
+ 1688:             if event.key == pygame.K_ESCAPE:
+ 1689:                 self._close_evt004_result_screen()
+ 1690:             elif event.key in (
+ 1691:                 pygame.K_RETURN,
+ 1692:                 pygame.K_KP_ENTER,
+ 1693:                 pygame.K_SPACE,
+ 1694:             ):
+ 1695:                 if not self.evt004_result_revealed:
+_close_evt004_result_screen at line 1698
+
+--- lines 1692-1704 ---
+ 1692:                 pygame.K_KP_ENTER,
+ 1693:                 pygame.K_SPACE,
+ 1694:             ):
+ 1695:                 if not self.evt004_result_revealed:
+ 1696:                     self._reveal_evt004_result_text()
+ 1697:                 else:
+ 1698:                     self._close_evt004_result_screen()
+ 1699:             return
+ 1700: 
+ 1701:         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+ 1702:             if not self.evt004_result_revealed:
+ 1703:                 self._reveal_evt004_result_text()
+ 1704:             else:
+_close_evt004_result_screen at line 1705
+
+--- lines 1699-1711 ---
+ 1699:             return
+ 1700: 
+ 1701:         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+ 1702:             if not self.evt004_result_revealed:
+ 1703:                 self._reveal_evt004_result_text()
+ 1704:             else:
+ 1705:                 self._close_evt004_result_screen()
+ 1706: 
+ 1707:     def _draw_evt004_result_screen(self, surface):
+ 1708:         """Draw a restrained 8-bit adventure ending."""
+ 1709:         width, height = surface.get_size()
+ 1710:         surface.fill((0, 0, 0))
+ 1711: 
+
+CALLS IN _draw_game_to_texture:
+_draw_evt004_result_screen at line 3817
+
+--- lines 3811-3823 ---
+ 3811:         self.screen_texture.write(pygame.image.tostring(surf, 'RGBA', True))
+ 3812: 
+ 3813:     def _draw_game_to_texture(self):
+ 3814:         w, h = self.screen_texture.size
+ 3815:         surf = pygame.Surface((w, h))
+ 3816:         if self.evt004_result_state is not None:
+ 3817:             self._draw_evt004_result_screen(surf)
+ 3818:             self.menu_cursor.set_hover_state(False)
+ 3819:             self.menu_cursor.draw(surf)
+ 3820:             self.screen_texture.write(
+ 3821:                 pygame.image.tobytes(surf, "RGBA", True)
+ 3822:             )
+ 3823:             return
+
+CALLS IN _update_game:
+_update_evt004_result_screen at line 4416
+
+--- lines 4410-4422 ---
+ 4410:                 self.current_screen = "menu"
+ 4411:                 self.audio_box.play_menu_music()
+ 4412:             return
+ 4413: 
+ 4414:     def _update_game(self):
+ 4415:         if self.evt004_result_state is not None:
+ 4416:             self._update_evt004_result_screen()
+ 4417:             return
+ 4418:         if self.event_collection_open or self.secret_input_open:
+ 4419:             return
+ 4420:         if self.evt004_runtime is not None:
+ 4421:             self._update_evt004(self.clock.get_time() / 1000.0)
+ 4422:             # EVT004 has an exclusive main_gameplay claim; do not tick normal gameplay underneath it.
+
+CALLS IN run:
+_handle_evt004_result_event at line 4784
+
+--- lines 4778-4790 ---
+ 4778:                     pygame.quit()
+ 4779:                     sys.exit()
+ 4780:                 if (
+ 4781:                     self.current_screen == "game"
+ 4782:                     and self.evt004_result_state is not None
+ 4783:                 ):
+ 4784:                     self._handle_evt004_result_event(event)
+ 4785:                     continue
+ 4786:                 if self.current_screen == "game" and self.evt003_state is not None:
+ 4787:                     self._handle_evt003_event(event)
+ 4788:                     continue
+ 4789:                 if self.current_screen == "game" and self.game_logic.word_shock_active:
+ 4790:                     if event.type == pygame.KEYDOWN and event.key == pygame.K_F2:
+
+4. RESULT SCREEN METHODS
+=================================================================
+
+--- _finish_evt004 (1488-1584) ---
+    def _finish_evt004(self, cancelled=False, failed=False, reason=None):
+        """Finish EVT_004: release resources, save outcome, restore audio/game state."""
+        if self.evt004_instance_id is None:
+            return
+        instance_id = self.evt004_instance_id
+        outcome = None
+        if self.evt004_runtime is not None:
+            result = self.evt004_runtime.result()
+            if result is not None:
+                outcome = result.result
+        if cancelled and self.evt004_runtime is not None and self.evt004_runtime.running:
+            self.evt004_runtime.cancel(reason or "HOST_CANCELLED")
+            result = self.evt004_runtime.result()
+            if result is not None:
+                outcome = result.result
+        if cancelled and outcome is None:
+            outcome = "CANCELLED"
+        if failed or outcome == "DEFEAT":
+            event_status_failed = True
+            event_status_cancelled = False
+        elif cancelled or outcome == "CANCELLED":
+            event_status_failed = False
+            event_status_cancelled = True
+        else:
+            event_status_failed = False
+            event_status_cancelled = False
+        try:
+            instance = self.event_manager.finish(
+                instance_id,
+                cancelled=event_status_cancelled,
+                failed=event_status_failed,
+                reason=reason,
+            )
+        except KeyError:
+            instance = None
+        is_admin_sandbox = False
+        if self.evt004_runtime is not None:
+            inst = self.event_manager.instances.get(instance_id)
+            if inst is not None:
+                is_admin_sandbox = bool(inst.data.get("admin_sandbox", False))
+        if not is_admin_sandbox and outcome is not None:
+            state = {
+                "outcome": outcome,
+                "reason": reason or "",
+                "dragon_hp": self.evt004_runtime.dragon_hp if self.evt004_runtime else 0,
+                "dragon_max_hp": self.evt004_runtime.dragon_hp_max if self.evt004_runtime else 0,
+                "destroyed_targets": self.evt004_runtime.destroyed_targets if self.evt004_runtime else 0,
+                "total_targets": self.evt004_runtime.total_targets if self.evt004_runtime else 0,
+                "finished_at": time.monotonic(),
+            }
+            try:
+                SaveManager.save_event_state("EVT_004_ADVENTURE_ROAD", state)
+            except Exception:
+                self.app_logger.exception("EVT_004 save state failed")
+            if outcome == "VICTORY":
+                try:
+                    from events.secret_access import mark_event_completed, normalize_event_collection_progress
+                    data = SaveManager._read_raw_game_data()
+                    progress = normalize_event_collection_progress(data.get("event_collection_progress", {}))
+                    progress = mark_event_completed(progress, "road_of_adventures")
+                    SaveManager.save_event_collection_state(progress=progress)
+                except Exception:
+                    self.app_logger.exception("EVT_004 collection save failed")
+            elif outcome == "DEFEAT":
+                try:
+                    from events.secret_access import mark_event_found, normalize_event_collection_progress
+                    data = SaveManager._read_raw_game_data()
+                    progress = normalize_event_collection_progress(data.get("event_collection_progress", {}))
+                    progress = mark_event_found(progress, "road_of_adventures")
+                    SaveManager.save_event_collection_state(progress=progress)
+                except Exception:
+                    self.app_logger.exception("EVT_004 defeat collection save failed")
+        try:
+            self._stop_evt004_audio()
+            self.audio_box.play_game_music()
+        except Exception:
+            self.app_logger.exception("EVT_004 audio restore failed")
+        # Preserve the final dragon image before the runtime is released.
+        self.evt004_result_dragon_surface = None
+        if outcome in ("VICTORY", "DEFEAT") and self.evt004_runtime is not None:
+            try:
+                dragon = getattr(self.evt004_runtime, "dragon", None)
+                if dragon is not None:
+                    transformed = dragon.transformed_sprite(for_death=True)
+                    if transformed is not None:
+                        self.evt004_result_dragon_surface = transformed.copy()
+            except Exception:
+                self.app_logger.exception("EVT_004 result dragon snapshot failed")
+        self.evt004_runtime = None
+        self.evt004_presentation = None
+        self.evt004_instance_id = None
+        self.evt004_started_at = 0.0
+        if outcome in ("VICTORY", "DEFEAT"):
+            self._start_evt004_result_screen(outcome)
+        elif outcome == "CANCELLED":
+            self._show_notification("EVT_004: ОТМЕНЕНО", duration=2000)
+        self.secret_prompt_session.retry_after_event()
+
+--- _start_evt004_result_screen (1586-1622) ---
+    def _start_evt004_result_screen(self, outcome):
+        """Start the exclusive EVT_004 story ending screen."""
+        if outcome == "VICTORY":
+            title = "YOU WIN"
+            text = (
+                "Драконы… Драконы всегда были бичом нашего мира.\n\n"
+                "Поздравляем тебя, герой! Ты одолел злобного дракона и "
+                "совершил подвиг, о котором будут слагать легенды.\n\n"
+                "Следуй дальше своим путём, герой. Мы надеемся, что ещё "
+                "услышим множество славных рассказов о твоих свершениях!"
+            )
+        elif outcome == "DEFEAT":
+            title = "GAME OVER"
+            text = (
+                "Ты храбро сражался со злобным драконом, но даже твоей "
+                "отваги оказалось недостаточно, чтобы одолеть его.\n\n"
+                "Здесь заканчивается твой жизненный путь, герой… "
+                "Но не сказания о твоём имени.\n\n"
+                "Пусть память о твоей храбрости живёт в веках."
+            )
+        else:
+            return False
+
+        self.evt004_result_state = outcome
+        self.evt004_result_title = title
+        self.evt004_result_text = text
+        self.evt004_result_started_at = time.monotonic()
+        self.evt004_result_typewriter_count = 0
+        self.evt004_result_revealed = False
+        self.evt004_result_interval = 0.045
+
+        self.evt004_result_typewriter.reset(
+            text,
+            started_at=self.evt004_result_started_at,
+            interval=self.evt004_result_interval,
+        )
+        return True
+
+--- _update_evt004_result_screen (1624-1649) ---
+    def _update_evt004_result_screen(self):
+        """Advance the result title one character at a time."""
+        if self.evt004_result_state is None:
+            return
+
+        if self.evt004_result_revealed:
+            return
+
+        now = time.monotonic()
+        newly_revealed = self.evt004_result_typewriter.advance(now)
+
+        self.evt004_result_typewriter_count = min(
+            len(self.evt004_result_text),
+            max(
+                0,
+                int(self.evt004_result_typewriter.visible_count),
+            ),
+        )
+
+        for _ in range(newly_revealed):
+            self.audio_box.play_typewriter_tick()
+
+        if self.evt004_result_typewriter_count >= len(
+            self.evt004_result_text
+        ):
+            self.evt004_result_revealed = True
+
+--- _close_evt004_result_screen (1661-1672) ---
+    def _close_evt004_result_screen(self):
+        """Release the result screen and return to normal gameplay."""
+        if self.evt004_result_state is None:
+            return
+
+        self.evt004_result_state = None
+        self.evt004_result_title = ""
+        self.evt004_result_text = ""
+        self.evt004_result_started_at = 0.0
+        self.evt004_result_typewriter_count = 0
+        self.evt004_result_revealed = False
+        self.evt004_result_dragon_surface = None
+
+--- _handle_evt004_result_event (1674-1705) ---
+    def _handle_evt004_result_event(self, event):
+        """Consume all gameplay input while the result screen is active."""
+        if event.type == pygame.VIDEORESIZE:
+            self.screen = pygame.display.set_mode(
+                (event.w, event.h),
+                pygame.FULLSCREEN | pygame.DOUBLEBUF | pygame.OPENGL,
+            )
+            self._setup_menu_hitboxes()
+            self.game_view.width = event.w
+            self.game_view.height = event.h
+            self.game_view.recalculate_layout()
+            return
+
+        if event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_ESCAPE:
+                self._close_evt004_result_screen()
+            elif event.key in (
+                pygame.K_RETURN,
+                pygame.K_KP_ENTER,
+                pygame.K_SPACE,
+            ):
+                if not self.evt004_result_revealed:
+                    self._reveal_evt004_result_text()
+                else:
+                    self._close_evt004_result_screen()
+            return
+
+        if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+            if not self.evt004_result_revealed:
+                self._reveal_evt004_result_text()
+            else:
+                self._close_evt004_result_screen()
+
+--- _draw_evt004_result_screen (1707-1855) ---
+    def _draw_evt004_result_screen(self, surface):
+        """Draw a restrained 8-bit adventure ending."""
+        width, height = surface.get_size()
+        surface.fill((0, 0, 0))
+
+        # Use the project's existing ContraPhobotech font.
+        game_view = getattr(self, "game_view", None)
+        font = getattr(game_view, "font_main", None) if game_view else None
+        if font is None:
+            font = self.font_hint
+
+        if self.evt004_result_state == "VICTORY":
+            title_color = (218, 210, 166)
+            body_color = (190, 198, 184)
+            dragon_tint = None
+        else:
+            title_color = (190, 164, 164)
+            body_color = (174, 174, 174)
+            dragon_tint = (190, 150, 150)
+
+        # The dragon is the only large visual element.
+        dragon = self.evt004_result_dragon_surface
+        dragon_bottom = int(height * 0.34)
+
+        if dragon is not None:
+            try:
+                image = dragon.copy()
+                source_width, source_height = image.get_size()
+                if source_width > 0 and source_height > 0:
+                    max_width = int(width * 0.34)
+                    max_height = int(height * 0.28)
+                    scale = min(
+                        max_width / source_width,
+                        max_height / source_height,
+                        1.0,
+                    )
+                    target_size = (
+                        max(1, int(source_width * scale)),
+                        max(1, int(source_height * scale)),
+                    )
+                    image = pygame.transform.scale(image, target_size)
+                    if dragon_tint is not None:
+                        overlay = pygame.Surface(image.get_size(), pygame.SRCALPHA)
+                        overlay.fill((*dragon_tint, 72))
+                        image.blit(overlay, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
+                    image_rect = image.get_rect(
+                        center=(width // 2, int(height * 0.19))
+                    )
+                    surface.blit(image, image_rect)
+                    dragon_bottom = image_rect.bottom
+            except Exception:
+                self.app_logger.exception("EVT_004 result dragon drawing failed")
+
+        # Classic compact title: no panel, border, shadow or button decoration.
+        title = getattr(self, "evt004_result_title", "")
+        if title:
+            title_surface = font.render(title, True, title_color)
+            max_title_width = int(width * 0.82)
+            if title_surface.get_width() > max_title_width:
+                scale = max_title_width / title_surface.get_width()
+                title_surface = pygame.transform.scale(
+                    title_surface,
+                    (
+                        max(1, int(title_surface.get_width() * scale)),
+                        max(1, int(title_surface.get_height() * scale)),
+                    ),
+                )
+            title_rect = title_surface.get_rect(
+                center=(width // 2, max(dragon_bottom + 24, int(height * 0.39)))
+            )
+            surface.blit(title_surface, title_rect)
+
+        # Reveal only the typewriter-visible part of the approved story.
+        visible_text = self.evt004_result_text[
+            :self.evt004_result_typewriter_count
+        ]
+
+        text_top = max(int(height * 0.48), dragon_bottom + int(height * 0.12))
+        text_bottom = int(height * 0.88)
+        max_text_width = int(width * 0.82)
+        line_height = max(font.get_linesize(), font.get_height() + 2)
+
+        paragraphs = visible_text.split("\n\n")
+        rendered_lines = []
+
+        for paragraph in paragraphs:
+            words = paragraph.split()
+            if not words:
+                rendered_lines.append("")
+                continue
+
+            current = ""
+            for word in words:
+                candidate = word if not current else current + " " + word
+                if current and font.size(candidate)[0] > max_text_width:
+                    rendered_lines.append(current)
+                    current = word
+                else:
+                    current = candidate
+            if current:
+                rendered_lines.append(current)
+            rendered_lines.append("")
+
+        if rendered_lines and rendered_lines[-1] == "":
+            rendered_lines.pop()
+
+        total_height = len(rendered_lines) * line_height
+        available_height = max(1, text_bottom - text_top)
+
+        # If needed, reduce the rendered glyph surfaces uniformly; do not change fonts.
+        render_scale = min(1.0, available_height / max(1, total_height))
+        y = text_top
+
+        for line in rendered_lines:
+            if not line:
+                y += max(5, int(line_height * 0.55 * render_scale))
+                continue
+
+            line_surface = font.render(line, True, body_color)
+            if render_scale < 1.0:
+                line_surface = pygame.transform.scale(
+                    line_surface,
+                    (
+                        max(1, int(line_surface.get_width() * render_scale)),
+                        max(1, int(line_surface.get_height() * render_scale)),
+                    ),
+                )
+            rect = line_surface.get_rect(center=(width // 2, y + line_surface.get_height() // 2))
+            surface.blit(line_surface, rect)
+            y += max(1, int(line_height * render_scale))
+
+        if self.evt004_result_revealed:
+            hint_font = self.font_hint
+            hint_text = "ENTER / SPACE / CLICK"
+            hint_surface = hint_font.render(hint_text, True, (112, 120, 128))
+            max_hint_width = int(width * 0.72)
+            if hint_surface.get_width() > max_hint_width:
+                scale = max_hint_width / hint_surface.get_width()
+                hint_surface = pygame.transform.scale(
+                    hint_surface,
+                    (
+                        max(1, int(hint_surface.get_width() * scale)),
+                        max(1, int(hint_surface.get_height() * scale)),
+                    ),
+                )
+            surface.blit(
+                hint_surface,
+                hint_surface.get_rect(center=(width // 2, int(height * 0.95))),
+            )
+
+5. PRESENTATION MODULE STRUCTURE
+=================================================================
+
+CLASS AdventureRoadPresentation: lines 16-149
+  __init__: 35-39
+  _font: 42-45
+  build_field_rect: 47-56
+  collect_target_rects: 58-118
+  sync_live_targets: 120-125
+  build_runtime: 127-139
+  draw: 141-149
