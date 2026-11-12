@@ -1,0 +1,27 @@
+PALCHIK EVT_004 RENAME PREFLIGHT
+Generated: 2026-11-12T18:11:44.6322071+03:00
+Root: C:\Users\PC\Desktop\project
+READ ONLY: no project files modified
+
+=== REFERENCES IN CURRENT PROJECT ===
+main.py:26: from events.adventure_road_runtime import AdventureRoadRuntime
+main.py:27: from events.adventure_road_presentation import AdventureRoadPresentation
+config\events\evt_004_road_of_adventures.json:10: "implementation": "events.adventure_road_runtime.AdventureRoadRuntime",
+docs\evt004_technical_passport.md:233: - Runtime: `events/adventure_road_runtime.py`
+docs\evt004_technical_passport.md:234: - Презентация: `events/adventure_road_presentation.py`
+docs\evt004_technical_passport.md:257: | `events/adventure_road_runtime.py` | `AdventureRoadRuntime` | Ядро игровой логики |
+docs\evt004_technical_passport.md:258: | `events/adventure_road_presentation.py` | `AdventureRoadPresentation` | Отрисовка над сценой |
+events\adventure_road_presentation.py:12: from .adventure_road_runtime import AdventureRoadRuntime, TargetSpec
+events\adventure_road_presentation.py:13: from .adventure_road_dragon import InterfaceTarget
+events\adventure_road_runtime.py:15: from . import adventure_road_dragon as dragon_core
+events\catalog.py:102: source=EventSource.ACTION, implementation="events.adventure_road_runtime.AdventureRoadRuntime",
+
+=== CURRENT MODULE HASHES ===
+main.py  CD9598281BF8FAB747577447FBAE793D13E206AD4772933BD9644687A88D167B
+events\adventure_road_runtime.py  3D1D62106D7BBD6BC5A7905672A9FF6EFA6E78B41B4452693DB20F7E45992B17
+events\adventure_road_presentation.py  A018F7CD90057E84B395DD8AC1C679EA2C748B801B3D60BE02DE21E40D617B31
+events\adventure_road_dragon.py  2721A290A8A4EC65564DF7C4AB796EB2A9B015114378E5A9199B26CA395455D3
+config\events\evt_004_road_of_adventures.json  F90048F03135AF3A45B63500613983A595A8FB56003C6E05B33693CDAFEDDE30
+docs\evt004_technical_passport.md  7DCBE10A65DF68F2E1BF9D9889E2B6924ACBB0FB1F65E97A90A2C34F3FC5F5A6
+
+=== END OF REPORT ===
