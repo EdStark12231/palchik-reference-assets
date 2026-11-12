@@ -411,6 +411,8 @@ class Application:
         )
         self.evt004_result_typewriter_count = 0
         self.evt004_result_revealed = False
+        self.evt004_result_title = ""
+        self.evt004_result_dragon_surface = None
         self.evt003_is_sandbox = False
         self.evt003_dialog_payload = None
         self.evt003_ok_rect = None
@@ -480,7 +482,7 @@ class Application:
         self.subtitle_typewriter_speed = 0.05  # seconds per character
         self.subtitle_typewriter_timer = 0.0
         self.subtitle_next_idle_timer = 0.0  # timer before next subtitle appears
-        
+
         # Code initialization sequence state
         self.code_init_active = False
         self.code_init_step = 0
@@ -1560,6 +1562,17 @@ class Application:
             self.audio_box.play_game_music()
         except Exception:
             self.app_logger.exception("EVT_004 audio restore failed")
+        # Preserve the final dragon image before the runtime is released.
+        self.evt004_result_dragon_surface = None
+        if outcome in ("VICTORY", "DEFEAT") and self.evt004_runtime is not None:
+            try:
+                dragon = getattr(self.evt004_runtime, "dragon", None)
+                if dragon is not None:
+                    transformed = dragon.transformed_sprite(for_death=True)
+                    if transformed is not None:
+                        self.evt004_result_dragon_surface = transformed.copy()
+            except Exception:
+                self.app_logger.exception("EVT_004 result dragon snapshot failed")
         self.evt004_runtime = None
         self.evt004_presentation = None
         self.evt004_instance_id = None
@@ -1571,19 +1584,35 @@ class Application:
         self.secret_prompt_session.retry_after_event()
 
     def _start_evt004_result_screen(self, outcome):
-        """Start the exclusive EVT_004 victory/defeat screen."""
+        """Start the exclusive EVT_004 story ending screen."""
         if outcome == "VICTORY":
-            text = "YOU WIN"
+            title = "YOU WIN"
+            text = (
+                "Драконы… Драконы всегда были бичом нашего мира.\n\n"
+                "Поздравляем тебя, герой! Ты одолел злобного дракона и "
+                "совершил подвиг, о котором будут слагать легенды.\n\n"
+                "Следуй дальше своим путём, герой. Мы надеемся, что ещё "
+                "услышим множество славных рассказов о твоих свершениях!"
+            )
         elif outcome == "DEFEAT":
-            text = "GAME OVER"
+            title = "GAME OVER"
+            text = (
+                "Ты храбро сражался со злобным драконом, но даже твоей "
+                "отваги оказалось недостаточно, чтобы одолеть его.\n\n"
+                "Здесь заканчивается твой жизненный путь, герой… "
+                "Но не сказания о твоём имени.\n\n"
+                "Пусть память о твоей храбрости живёт в веках."
+            )
         else:
             return False
 
         self.evt004_result_state = outcome
+        self.evt004_result_title = title
         self.evt004_result_text = text
         self.evt004_result_started_at = time.monotonic()
         self.evt004_result_typewriter_count = 0
         self.evt004_result_revealed = False
+        self.evt004_result_interval = 0.045
 
         self.evt004_result_typewriter.reset(
             text,
@@ -1635,10 +1664,12 @@ class Application:
             return
 
         self.evt004_result_state = None
+        self.evt004_result_title = ""
         self.evt004_result_text = ""
         self.evt004_result_started_at = 0.0
         self.evt004_result_typewriter_count = 0
         self.evt004_result_revealed = False
+        self.evt004_result_dragon_surface = None
 
     def _handle_evt004_result_event(self, event):
         """Consume all gameplay input while the result screen is active."""
@@ -1674,96 +1705,153 @@ class Application:
                 self._close_evt004_result_screen()
 
     def _draw_evt004_result_screen(self, surface):
-        """Draw the restrained NES-style result screen."""
+        """Draw a restrained 8-bit adventure ending."""
         width, height = surface.get_size()
-        surface.fill((3, 5, 14))
+        surface.fill((0, 0, 0))
 
-        frame_width = max(
-            1, min(width - 24, max(240, int(width * 0.72)))
-        )
-        frame_height = max(
-            1, min(height - 24, max(150, int(height * 0.34)))
-        )
-
-        frame = pygame.Rect(
-            0, 0, frame_width, frame_height
-        )
-        frame.center = (width // 2, height // 2)
-
-        pygame.draw.rect(surface, (7, 11, 25), frame)
-        pygame.draw.rect(surface, (48, 76, 132), frame, 4)
-
-        inner_frame = frame.inflate(-12, -12)
-        if inner_frame.width > 0 and inner_frame.height > 0:
-            pygame.draw.rect(
-                surface, (91, 126, 184), inner_frame, 1
-            )
+        # Use the project's existing ContraPhobotech font.
+        game_view = getattr(self, "game_view", None)
+        font = getattr(game_view, "font_main", None) if game_view else None
+        if font is None:
+            font = self.font_hint
 
         if self.evt004_result_state == "VICTORY":
-            title_color = (255, 226, 132)
+            title_color = (218, 210, 166)
+            body_color = (190, 198, 184)
+            dragon_tint = None
         else:
-            title_color = (255, 104, 104)
+            title_color = (190, 164, 164)
+            body_color = (174, 174, 174)
+            dragon_tint = (190, 150, 150)
 
+        # The dragon is the only large visual element.
+        dragon = self.evt004_result_dragon_surface
+        dragon_bottom = int(height * 0.34)
+
+        if dragon is not None:
+            try:
+                image = dragon.copy()
+                source_width, source_height = image.get_size()
+                if source_width > 0 and source_height > 0:
+                    max_width = int(width * 0.34)
+                    max_height = int(height * 0.28)
+                    scale = min(
+                        max_width / source_width,
+                        max_height / source_height,
+                        1.0,
+                    )
+                    target_size = (
+                        max(1, int(source_width * scale)),
+                        max(1, int(source_height * scale)),
+                    )
+                    image = pygame.transform.scale(image, target_size)
+                    if dragon_tint is not None:
+                        overlay = pygame.Surface(image.get_size(), pygame.SRCALPHA)
+                        overlay.fill((*dragon_tint, 72))
+                        image.blit(overlay, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
+                    image_rect = image.get_rect(
+                        center=(width // 2, int(height * 0.19))
+                    )
+                    surface.blit(image, image_rect)
+                    dragon_bottom = image_rect.bottom
+            except Exception:
+                self.app_logger.exception("EVT_004 result dragon drawing failed")
+
+        # Classic compact title: no panel, border, shadow or button decoration.
+        title = getattr(self, "evt004_result_title", "")
+        if title:
+            title_surface = font.render(title, True, title_color)
+            max_title_width = int(width * 0.82)
+            if title_surface.get_width() > max_title_width:
+                scale = max_title_width / title_surface.get_width()
+                title_surface = pygame.transform.scale(
+                    title_surface,
+                    (
+                        max(1, int(title_surface.get_width() * scale)),
+                        max(1, int(title_surface.get_height() * scale)),
+                    ),
+                )
+            title_rect = title_surface.get_rect(
+                center=(width // 2, max(dragon_bottom + 24, int(height * 0.39)))
+            )
+            surface.blit(title_surface, title_rect)
+
+        # Reveal only the typewriter-visible part of the approved story.
         visible_text = self.evt004_result_text[
             :self.evt004_result_typewriter_count
         ]
 
-        title_surface = self.font_title.render(
-            visible_text, True, title_color
-        )
+        text_top = max(int(height * 0.48), dragon_bottom + int(height * 0.12))
+        text_bottom = int(height * 0.88)
+        max_text_width = int(width * 0.82)
+        line_height = max(font.get_linesize(), font.get_height() + 2)
 
-        max_title_width = max(1, frame.width - 48)
-        if title_surface.get_width() > max_title_width:
-            scale = max_title_width / title_surface.get_width()
-            title_surface = pygame.transform.scale(
-                title_surface,
-                (
-                    max_title_width,
-                    max(
-                        1,
-                        int(title_surface.get_height() * scale),
-                    ),
-                ),
-            )
+        paragraphs = visible_text.split("\n\n")
+        rendered_lines = []
 
-        surface.blit(
-            title_surface,
-            title_surface.get_rect(
-                center=(frame.centerx, frame.centery - 8)
-            ),
-        )
+        for paragraph in paragraphs:
+            words = paragraph.split()
+            if not words:
+                rendered_lines.append("")
+                continue
 
-        if self.evt004_result_revealed:
-            hint = self.font_hint.render(
-                "PRESS ENTER / CLICK",
-                True,
-                (132, 218, 178),
-            )
+            current = ""
+            for word in words:
+                candidate = word if not current else current + " " + word
+                if current and font.size(candidate)[0] > max_text_width:
+                    rendered_lines.append(current)
+                    current = word
+                else:
+                    current = candidate
+            if current:
+                rendered_lines.append(current)
+            rendered_lines.append("")
 
-            max_hint_width = max(1, frame.width - 32)
-            if hint.get_width() > max_hint_width:
-                scale = max_hint_width / hint.get_width()
-                hint = pygame.transform.scale(
-                    hint,
+        if rendered_lines and rendered_lines[-1] == "":
+            rendered_lines.pop()
+
+        total_height = len(rendered_lines) * line_height
+        available_height = max(1, text_bottom - text_top)
+
+        # If needed, reduce the rendered glyph surfaces uniformly; do not change fonts.
+        render_scale = min(1.0, available_height / max(1, total_height))
+        y = text_top
+
+        for line in rendered_lines:
+            if not line:
+                y += max(5, int(line_height * 0.55 * render_scale))
+                continue
+
+            line_surface = font.render(line, True, body_color)
+            if render_scale < 1.0:
+                line_surface = pygame.transform.scale(
+                    line_surface,
                     (
-                        max_hint_width,
-                        max(
-                            1,
-                            int(hint.get_height() * scale),
-                        ),
+                        max(1, int(line_surface.get_width() * render_scale)),
+                        max(1, int(line_surface.get_height() * render_scale)),
                     ),
                 )
+            rect = line_surface.get_rect(center=(width // 2, y + line_surface.get_height() // 2))
+            surface.blit(line_surface, rect)
+            y += max(1, int(line_height * render_scale))
 
+        if self.evt004_result_revealed:
+            hint_font = self.font_hint
+            hint_text = "ENTER / SPACE / CLICK"
+            hint_surface = hint_font.render(hint_text, True, (112, 120, 128))
+            max_hint_width = int(width * 0.72)
+            if hint_surface.get_width() > max_hint_width:
+                scale = max_hint_width / hint_surface.get_width()
+                hint_surface = pygame.transform.scale(
+                    hint_surface,
+                    (
+                        max(1, int(hint_surface.get_width() * scale)),
+                        max(1, int(hint_surface.get_height() * scale)),
+                    ),
+                )
             surface.blit(
-                hint,
-                hint.get_rect(
-                    center=(
-                        frame.centerx,
-                        frame.bottom - max(
-                            24, int(frame.height * 0.20)
-                        ),
-                    )
-                ),
+                hint_surface,
+                hint_surface.get_rect(center=(width // 2, int(height * 0.95))),
             )
 
     def _update_evt004(self, dt):
