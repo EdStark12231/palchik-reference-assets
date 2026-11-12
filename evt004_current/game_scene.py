@@ -1,0 +1,2182 @@
+import logging
+import pygame
+import random
+import math
+import time
+from pathlib import Path
+from localization import TRANSLATIONS
+from text_cache import text_cache
+
+_LOGGER = logging.getLogger("PALCHIK.game_scene")
+
+class GameControllerPygame:
+    def __init__(self, width=800, height=600):
+        self.width = width
+        self.height = height
+        self.screen = None
+        self.backdrop = None
+        self._event_background_cache_key = None
+        self._event_background_cache = None
+        self.rect_back = pygame.Rect(0, 0, 40, 40)
+        self.rect_target = pygame.Rect(0, 0, 180, 180)
+        self.roach_hitboxes = []
+        self.word_shock_confirm_rect = None
+        self.roach_hitbox_indices = []
+        self.roach_frames = {"right": [], "left": [], "up": [], "down": []}
+        self.roach_squashed_image = None
+        self.roach_impact_image = None
+        self.roach_squash_effects = []
+        self.rect_phrase_btn = pygame.Rect(0, 0, 240, 40)
+        self.rect_instant_wash = pygame.Rect(0, 0, 360, 44)
+        self.rect_free_wash_btn = pygame.Rect(0, 0, 360, 44)
+        self.rect_wallpaper = pygame.Rect(0, 0, 40, 40)
+
+        self.rect_pbar = pygame.Rect(0, 0, 400, 36)
+        self.rect_name_entry_btn = pygame.Rect(0, 0, 360, 50)
+        self.rect_lore_icon = None
+        # EVT_004: exact rectangles captured from the current rendered frame.
+        self.evt004_rect_target = None
+        self.evt004_rect_back = None
+        self.evt004_rect_wallpaper = None
+        self.evt004_rect_phrase = None
+        self.evt004_rect_free_wash = None
+        self.evt004_rect_instant_wash = None
+        self._evt004_capture_background = False
+        self._evt004_background_snapshot = None
+        self.code_window_rect = None
+        self.code_close_rect = None
+        self.code_cancel_btn_rect = None
+        self.code_input_rects = []
+        self.ok_btn_rect = None
+        
+        # Lore window dragging state
+        self.lore_window_offset_x = 0
+        self.lore_window_offset_y = 0
+        self.lore_window_dragging = False
+        self.lore_drag_start_x = 0
+        self.lore_drag_start_y = 0
+        self.lore_win_rect = pygame.Rect(0, 0, 0, 0)
+        
+        # Lore folder navigation state
+        self.lore_current_path = []  # stack of folder indices for navigation
+        self.lore_selection_index = 0  # currently selected item
+        self.lore_item_rects = []  # hitboxes for items
+        self.lore_back_rect = None  # back button hitbox
+        self.lore_scroll_y = 0  # scroll offset for long lists
+        self.lore_tree_rects = []
+        self.lore_menu_rects = []
+        self.lore_dropdown_rect = None
+        self.lore_dropdown_item_rects = []
+        self.lore_active_menu = None
+        self.lore_status_bar_visible = True
+        self.lore_selection_index = -1
+        self.lore_history = [()]
+        self.lore_history_index = 0
+        self.lore_selected_indices = set()
+        self.lore_last_clicked_index = -1
+        self.lore_last_clicked_time = 0
+        self.lore_hover_index = -1
+        self.lore_scroll_dragging = False
+        self.lore_scroll_drag_start_y = 0
+        self.lore_scroll_drag_start_row = 0
+        self.lore_scroll_row = 0
+        self.lore_max_scroll = 0
+        self.lore_grid_cols = 1
+        self.lore_visible_rows = 1
+        self.lore_total_rows = 0
+        self.lore_view_rect = None
+        self.lore_scroll_track_rect = None
+        self.lore_scroll_thumb_rect = None
+        self.lore_scroll_up_rect = None
+        self.lore_scroll_down_rect = None
+        self.lore_nav_rects = []
+        self.lore_breadcrumb_rects = []
+        self.lore_item_indices = []
+        self.lore_status_bar_rect = None
+        self.lore_about_message = ''
+        # Window caching for performance
+        self.code_window_cache = None
+        self.code_window_dirty = True
+        self.lore_window_cache = None
+        self.lore_window_dirty = True
+        
+        self.rect_sectors = []
+        for i in range(4):
+            self.rect_sectors.append(pygame.Rect(0, 0, 90, 40))
+            
+        self._load_fonts()
+        self._generate_icons()
+
+        import os
+        possible_paths = [
+            os.path.join("assets", "sprite_earth_meme0.png"),
+            os.path.join("assets", "sprites", "sprite_earth_meme0.png"),
+            os.path.join("assets", "bg_sprites", "pixel", "sprite_earth_meme0.png")
+        ]
+        self.sprite_img = None
+        for path in possible_paths:
+            if os.path.exists(path):
+                self.sprite_img = pygame.image.load(path).convert_alpha()
+                self.sprite_img = pygame.transform.scale(self.sprite_img, (44, 44))
+                _LOGGER.info("Спрайт Земли успешно загружен: %s", path)
+                break
+        if self.sprite_img is None:
+            _LOGGER.warning("Ассет 'sprite_earth_meme0.png' не найден; создан аварийный квадрат.")
+            self.sprite_img = pygame.Surface((44, 44))
+            self.sprite_img.fill((255, 0, 0))
+        
+        self.typewriter_buffer = ""
+        self.typewriter_index = 0
+        self.typewriter_last_time = 0
+        self.typewriter_delay = 40
+        self.target_phrase = ""
+        self.glitch_intensity = 0.0
+        self.display_phrase = ""
+        self.phrase_finish_time = 0
+        self.saved_meme = ""
+        self.horror_active = False
+
+        self.target_scale = 1.0
+        self.label_scale = 1.0
+        self.target_shake = 0
+        self.shadow_flicker = False
+        self.shadow_offset_x = 0
+        
+        self.load_backdrop()
+        self._load_roach_assets()
+
+    def load_backdrop(self):
+        try:
+            from scene_manager import create_backdrop
+            self.backdrop = create_backdrop("game", self.width, self.height)
+        except Exception:
+            _LOGGER.exception("Не удалось создать игровой фон")
+            self.backdrop = None
+
+    def recalculate_layout(self):
+        if not self.screen:
+            return
+        w, h = self.screen.get_size()
+        self.width, self.height = w, h
+        self.rect_target.center = (w // 2, int(h * 0.52))
+        self.rect_phrase_btn.center = (w // 2, int(h * 0.35))
+        
+        sector_size = w // 4
+        
+        # Position back button in top-left sector
+        self.rect_back.topleft = (int(sector_size * 0.1), 24)
+        
+        # Position wallpaper icon in bottom-right sector
+        self.rect_wallpaper.topleft = (int(sector_size * 3 + sector_size * 0.6), int(h - 64))
+
+        self.rect_pbar.center = (w // 2, int(h * 0.48))
+        
+        grid_start_x = w // 2 - (2 * 110) // 2
+        grid_start_y = int(h * 0.52) - (2 * 50) // 2
+        for idx, rect in enumerate(self.rect_sectors):
+            row = idx // 2
+            col = idx % 2
+            rect.x = grid_start_x + col * 110
+            rect.y = grid_start_y + row * 50
+        
+        # Name entry button layout - position in bottom sector
+        self.rect_name_entry_btn = pygame.Rect(0, 0, 360, 50)
+        self.rect_name_entry_btn.center = (w // 2, int(sector_size * 3 + sector_size * 0.5))
+
+    def _draw_hidden_code_ui(self, surface, logic, debug_mode=False):
+        now = pygame.time.get_ticks()
+        hx = getattr(logic, "hidden_hitbox_x", 0)
+        hy = getattr(logic, "hidden_hitbox_y", 0)
+        phase_idx = logic.get_phase_index()
+        if phase_idx >= 4:
+            phase = 4
+        elif phase_idx >= 3:
+            phase = 3
+        elif phase_idx >= 2:
+            phase = 2
+        else:
+            phase = -1
+        intervals = {4: 2000, 3: 5000, 2: 10000}
+        if phase in intervals and (now // intervals[phase]) % 2 == 0:
+            pygame.draw.rect(surface, (255, 255, 255), (hx, hy, 1, 1))
+        if debug_mode:
+            pygame.draw.rect(surface, (0, 255, 0), (hx - 15, hy - 15, 30, 30), 2)
+
+        if not getattr(logic, "code_window_open", False):
+            self.code_window_rect = None
+            self.code_close_rect = None
+            self.code_cancel_btn_rect = None
+            self.code_input_rects = []
+            self.ok_btn_rect = None
+            return
+
+        w, h = surface.get_size()
+        win_w, win_h = 460, 210
+        win_x = (w - win_w) // 2
+        win_y = (h - win_h) // 2
+        title_bar_h = 24
+
+        self.code_window_rect = pygame.Rect(win_x, win_y, win_w, win_h)
+        close_rect = pygame.Rect(win_w - 24, 4, 18, 18)
+        ok_rect = pygame.Rect(win_w - 100, 54, 82, 26)
+        cancel_rect = pygame.Rect(win_w - 100, 91, 82, 26)
+        input_y = 111
+        cell_w, cell_h, gap = 48, 36, 12
+        start_x = 153
+        input_rects = [
+            pygame.Rect(start_x + i * (cell_w + gap), input_y, cell_w, cell_h)
+            for i in range(3)
+        ]
+        self.code_close_rect = close_rect.move(win_x, win_y)
+        self.ok_btn_rect = ok_rect.move(win_x, win_y)
+        self.code_cancel_btn_rect = cancel_rect.move(win_x, win_y)
+        self.code_input_rects = [rect.move(win_x, win_y) for rect in input_rects]
+
+        cache_size_changed = (
+            self.code_window_cache is not None
+            and self.code_window_cache.get_size() != (win_w, win_h)
+        )
+        if self.code_window_dirty or self.code_window_cache is None or cache_size_changed:
+            cache_surf = pygame.Surface((win_w, win_h), pygame.SRCALPHA)
+
+            # Classic Windows 9x bevelled dialog and blue title bar.
+            pygame.draw.rect(cache_surf, (128, 128, 128), (0, 0, win_w, win_h), 2)
+            pygame.draw.rect(cache_surf, (255, 255, 255), (2, 2, win_w - 4, 1))
+            pygame.draw.rect(cache_surf, (255, 255, 255), (2, 2, 1, win_h - 4))
+            pygame.draw.rect(cache_surf, (64, 64, 64), (2, win_h - 3, win_w - 4, 1))
+            pygame.draw.rect(cache_surf, (64, 64, 64), (win_w - 3, 2, 1, win_h - 4))
+            pygame.draw.rect(cache_surf, (192, 192, 192), (3, title_bar_h, win_w - 6, win_h - title_bar_h - 3))
+            pygame.draw.rect(cache_surf, (0, 0, 128), (3, 3, win_w - 6, title_bar_h - 3))
+
+            title_font = pygame.font.SysFont("Arial", 14, bold=True)
+            title_surf = title_font.render("ВВОД ПИН-КОДА", True, (255, 255, 255))
+            cache_surf.blit(title_surf, (8, 6))
+
+            # Standard red close box.
+            pygame.draw.rect(cache_surf, (192, 0, 0), close_rect)
+            pygame.draw.rect(cache_surf, (128, 128, 128), close_rect, 1)
+            close_surf = self.font_sys_close.render("X", True, (255, 255, 255))
+            cache_surf.blit(close_surf, close_surf.get_rect(center=close_rect.center))
+
+            # Small pixel-art key icon, drawn in memory (no external asset).
+            pygame.draw.circle(cache_surf, (88, 67, 25), (43, 83), 14)
+            pygame.draw.circle(cache_surf, (244, 196, 55), (42, 82), 11)
+            pygame.draw.circle(cache_surf, (192, 192, 192), (42, 82), 4)
+            pygame.draw.line(cache_surf, (91, 69, 25), (50, 90), (78, 118), 9)
+            pygame.draw.line(cache_surf, (244, 196, 55), (50, 90), (78, 118), 6)
+            pygame.draw.line(cache_surf, (91, 69, 25), (66, 106), (73, 99), 8)
+            pygame.draw.line(cache_surf, (244, 196, 55), (66, 106), (73, 99), 5)
+            pygame.draw.line(cache_surf, (91, 69, 25), (73, 113), (80, 106), 8)
+            pygame.draw.line(cache_surf, (244, 196, 55), (73, 113), (80, 106), 5)
+
+            instruction_font = pygame.font.SysFont("Arial", 13, bold=False)
+            instruction_lines = (
+                "Для доступа к архиву введите PIN-код.",
+                "Код состоит из трёх двузначных чисел.",
+            )
+            for line_index, line in enumerate(instruction_lines):
+                line_surf = instruction_font.render(line, True, (0, 0, 0))
+                cache_surf.blit(line_surf, (101, 43 + line_index * 18))
+
+            label_font = pygame.font.SysFont("Arial", 13, bold=False)
+            label_surf = label_font.render("PIN-код:", True, (0, 0, 0))
+            cache_surf.blit(label_surf, (101, input_y + 11))
+
+            input_buffer = getattr(logic, "input_buffer", [None, None, None])
+            current_cell_index = getattr(logic, "current_cell_index", 0)
+            current_cell_buffer = getattr(logic, "current_cell_buffer", "")
+            for i, cell_rect in enumerate(input_rects):
+                pygame.draw.rect(cache_surf, (255, 255, 255), cell_rect)
+                pygame.draw.line(cache_surf, (96, 96, 96), cell_rect.topleft, (cell_rect.right - 1, cell_rect.top))
+                pygame.draw.line(cache_surf, (96, 96, 96), cell_rect.topleft, (cell_rect.left, cell_rect.bottom - 1))
+                pygame.draw.line(cache_surf, (255, 255, 255), (cell_rect.left, cell_rect.bottom - 1), (cell_rect.right - 1, cell_rect.bottom - 1))
+                pygame.draw.line(cache_surf, (255, 255, 255), (cell_rect.right - 1, cell_rect.top), (cell_rect.right - 1, cell_rect.bottom - 1))
+
+                value = input_buffer[i] if i < len(input_buffer) else None
+                if i == current_cell_index and current_cell_buffer:
+                    value_text = current_cell_buffer
+                elif value is not None:
+                    value_text = f"{value:02d}"
+                else:
+                    value_text = ""
+                if value_text:
+                    value_surf = self._render_ui(value_text, (0, 0, 0), "Arial", 18, True)
+                    cache_surf.blit(value_surf, value_surf.get_rect(center=cell_rect.center))
+                if i == current_cell_index and current_cell_index < 3:
+                    pygame.draw.rect(cache_surf, (0, 0, 255), cell_rect, 2)
+                else:
+                    pygame.draw.rect(cache_surf, (128, 128, 128), cell_rect, 1)
+
+            def draw_button(rect, label):
+                pygame.draw.rect(cache_surf, (192, 192, 192), rect)
+                pygame.draw.line(cache_surf, (255, 255, 255), rect.topleft, (rect.right - 1, rect.top))
+                pygame.draw.line(cache_surf, (255, 255, 255), rect.topleft, (rect.left, rect.bottom - 1))
+                pygame.draw.line(cache_surf, (96, 96, 96), (rect.left, rect.bottom - 1), (rect.right - 1, rect.bottom - 1))
+                pygame.draw.line(cache_surf, (96, 96, 96), (rect.right - 1, rect.top), (rect.right - 1, rect.bottom - 1))
+                button_font = pygame.font.SysFont("Arial", 11, bold=True)
+                button_surf = button_font.render(label, True, (0, 0, 0))
+                cache_surf.blit(button_surf, button_surf.get_rect(center=rect.center))
+
+            draw_button(ok_rect, "OK")
+            draw_button(cancel_rect, "Отмена")
+
+            message = getattr(logic, "system_response_text", "") or "Нажмите OK для подтверждения."
+            message_font = pygame.font.SysFont("Arial", 12, bold=False)
+            max_width = 340
+            words = message.split()
+            lines = []
+            current_line = []
+            for word in words:
+                candidate = " ".join(current_line + [word])
+                if message_font.size(candidate)[0] <= max_width:
+                    current_line.append(word)
+                else:
+                    if current_line:
+                        lines.append(" ".join(current_line))
+                    current_line = [word]
+            if current_line:
+                lines.append(" ".join(current_line))
+            for line_index, line in enumerate(lines[:2]):
+                message_surf = message_font.render(line, True, (0, 0, 0))
+                cache_surf.blit(message_surf, (101, 165 + line_index * 15))
+
+            self.code_window_cache = cache_surf
+            self.code_window_dirty = False
+
+        surface.blit(self.code_window_cache, (win_x, win_y))
+
+    def _get_lore_current_items(self, logic):
+        """Получить список элементов для текущего уровня навигации."""
+        lang_code = getattr(logic, "current_lang", "RU")
+        text_data = TRANSLATIONS.get(lang_code, TRANSLATIONS["RU"])
+        folders_data = text_data.get("lore_folders", {})
+        
+        # Начинаем с корня
+        current_level = folders_data.get("root", [])
+        
+        # Проходим по пути навигации
+        for folder_idx in self.lore_current_path:
+            if folder_idx < len(current_level):
+                folder = current_level[folder_idx]
+                if folder.get("type") == "folder" and "content" in folder:
+                    current_level = folder["content"]
+                else:
+                    break
+            else:
+                break
+        
+        return current_level
+
+    def _draw_win95_bevel(self, target, rect, fill_color, raised=True, depth=2):
+        """Draw the four-tone 3D edges used by classic Windows controls."""
+        rect = pygame.Rect(rect)
+        pygame.draw.rect(target, fill_color, rect)
+        if raised:
+            top_left = ((255, 255, 255), (223, 223, 223))
+            bottom_right = ((128, 128, 128), (0, 0, 0))
+        else:
+            top_left = ((128, 128, 128), (0, 0, 0))
+            bottom_right = ((223, 223, 223), (255, 255, 255))
+        for layer in range(min(depth, 2)):
+            left, top = rect.left + layer, rect.top + layer
+            right, bottom = rect.right - 1 - layer, rect.bottom - 1 - layer
+            if right < left or bottom < top:
+                break
+            pygame.draw.line(target, top_left[layer], (left, top), (right, top))
+            pygame.draw.line(target, top_left[layer], (left, top), (left, bottom))
+            pygame.draw.line(target, bottom_right[layer], (right, top), (right, bottom))
+            pygame.draw.line(target, bottom_right[layer], (left, bottom), (right, bottom))
+
+    def _get_lore_menu_model(self, logic, current_items):
+        """Return localized Explorer menus with commands implemented below."""
+        lang = str(getattr(logic, "current_lang", "RU")).upper()
+        menus = {
+            "RU": ["Файл", "Правка", "Вид", "Сервис", "Папка", "Окно", "Справка"],
+            "US": ["File", "Edit", "View", "Tools", "Folder", "Window", "Help"],
+            "ES": ["Archivo", "Edición", "Ver", "Herramientas", "Carpeta", "Ventana", "Ayuda"],
+            "DE": ["Datei", "Bearbeiten", "Ansicht", "Extras", "Ordner", "Fenster", "Hilfe"],
+            "CN": ["文件", "编辑", "查看", "工具", "文件夹", "窗口", "帮助"],
+        }
+        commands = {
+            "RU": ["Открыть", "Закрыть", "Выделить всё", "Снять выделение", "Обновить", "Строка состояния", "На уровень вверх", "Обновить архив", "Об архиве"],
+            "US": ["Open", "Close", "Select All", "Clear Selection", "Refresh", "Status Bar", "Up One Level", "Refresh Archive", "About Archive"],
+            "ES": ["Abrir", "Cerrar", "Seleccionar todo", "Quitar selección", "Actualizar", "Barra de estado", "Subir un nivel", "Actualizar archivo", "Acerca del archivo"],
+            "DE": ["Öffnen", "Schließen", "Alles auswählen", "Auswahl aufheben", "Aktualisieren", "Statusleiste", "Eine Ebene höher", "Archiv aktualisieren", "Über das Archiv"],
+            "CN": ["打开", "关闭", "全选", "取消选择", "刷新", "状态栏", "上一级", "刷新档案", "关于档案"],
+        }
+        words = menus.get(lang, menus["US"])
+        text = commands.get(lang, commands["US"])
+        can_open = 0 <= self.lore_selection_index < len(current_items)
+        can_back = self.lore_history_index > 0
+        can_forward = self.lore_history_index < len(self.lore_history) - 1
+        can_up = bool(self.lore_current_path)
+        return [
+            ("file", words[0], [(text[0], "open", can_open, False), None, (text[1], "close", True, False)]),
+            ("edit", words[1], [(text[2], "select_all", bool(current_items), False), (text[3], "clear_selection", bool(self.lore_selected_indices), False)]),
+            ("view", words[2], [(text[4], "refresh", True, False), None, (text[5], "status", True, self.lore_status_bar_visible)]),
+            ("tools", words[3], [(text[7], "refresh", True, False)]),
+            ("folder", words[4], [(text[0], "open", can_open, False), (text[6], "up", can_up, False)]),
+            ("window", words[5], [(text[1], "close", True, False)]),
+            ("help", words[6], [(text[8], "about", True, False)]),
+        ]
+
+    def _draw_lore_window(self, surface, logic, debug_mode=False):
+        if not getattr(logic, "lore_window_open", False):
+            self.lore_close_rect = None
+            self.lore_menu_rects = []
+            self.lore_dropdown_rect = None
+            self.lore_dropdown_item_rects = []
+            self.lore_nav_rects = []
+            self.lore_breadcrumb_rects = []
+            self.lore_item_rects = []
+            self.lore_view_rect = None
+            self.lore_scroll_track_rect = None
+            self.lore_scroll_thumb_rect = None
+            self.lore_scroll_dragging = False
+            self.lore_active_menu = None
+            return
+
+        self._lore_logic_ref = logic
+        width, height = surface.get_size()
+        win_w = int(width * 0.65)
+        win_h = int(height * 0.55)
+        win_x = (width - win_w) // 2 + self.lore_window_offset_x
+        win_y = (height - win_h) // 2 + self.lore_window_offset_y
+        self.lore_win_rect = pygame.Rect(win_x, win_y, win_w, win_h)
+
+        lang = str(getattr(logic, "current_lang", "RU")).upper()
+        is_ru = lang == "RU"
+        text = {
+            "RU": {"title": "Архив записи", "back": "Назад", "forward": "Вперёд", "up": "Вверх", "root": "Компьютер", "objects": "объектов", "selected": "выбрано", "folder": "Папка с файлами", "file": "Файл", "audio": "Аудиофайл", "image": "Изображение", "text": "Текстовый документ"},
+            "US": {"title": "Recorded Archive", "back": "Back", "forward": "Forward", "up": "Up", "root": "Computer", "objects": "objects", "selected": "selected", "folder": "File folder", "file": "File", "audio": "Audio file", "image": "Image", "text": "Text document"},
+            "ES": {"title": "Archivo", "back": "Atrás", "forward": "Adelante", "up": "Subir", "root": "Equipo", "objects": "objetos", "selected": "seleccionados", "folder": "Carpeta", "file": "Archivo", "audio": "Audio", "image": "Imagen", "text": "Documento de texto"},
+            "DE": {"title": "Aufzeichnungsarchiv", "back": "Zurück", "forward": "Vorwärts", "up": "Nach oben", "root": "Computer", "objects": "Objekte", "selected": "ausgewählt", "folder": "Ordner", "file": "Datei", "audio": "Audiodatei", "image": "Bild", "text": "Textdokument"},
+            "CN": {"title": "记录档案", "back": "后退", "forward": "前进", "up": "向上", "root": "计算机", "objects": "个对象", "selected": "已选择", "folder": "文件夹", "file": "文件", "audio": "音频文件", "image": "图像", "text": "文本文档"},
+        }.get(lang, {"title": "Recorded Archive", "back": "Back", "forward": "Forward", "up": "Up", "root": "Computer", "objects": "objects", "selected": "selected", "folder": "File folder", "file": "File", "audio": "Audio file", "image": "Image", "text": "Text document"})
+
+        gray = (192, 192, 192)
+        white = (255, 255, 255)
+        black = (0, 0, 0)
+        navy = (0, 0, 128)
+        dark = (64, 64, 64)
+        face = (192, 192, 192)
+        ui_scale = max(1.0, min(2.0, min(win_w / 500.0, win_h / 300.0)))
+        font_size = max(11, min(14, int(round(11 * ui_scale))))
+        font = pygame.font.SysFont("MS Sans Serif", font_size)
+        bold = pygame.font.SysFont("MS Sans Serif", font_size, bold=True)
+
+        # Classic outer frame and 24px caption.
+        self._draw_win95_bevel(surface, self.lore_win_rect, face, raised=True, depth=2)
+        title_rect = pygame.Rect(win_x + 3, win_y + 3, win_w - 6, 18)
+        pygame.draw.rect(surface, navy, title_rect)
+        title_icon_rect = pygame.Rect(win_x + 5, win_y + 4, 16, 16)
+        self._draw_lore_explorer_icon(surface, {"type": "folder"}, title_icon_rect)
+        title_surface = bold.render(text["title"], False, white)
+        surface.blit(title_surface, (win_x + 25, win_y + 6))
+
+        close_rect = pygame.Rect(win_x + win_w - 22, win_y + 5, 16, 14)
+        self._draw_win95_bevel(surface, close_rect, face, raised=True, depth=2)
+        pygame.draw.line(surface, black, (close_rect.x + 4, close_rect.y + 3), (close_rect.x + 11, close_rect.y + 10), 1)
+        pygame.draw.line(surface, black, (close_rect.x + 11, close_rect.y + 3), (close_rect.x + 4, close_rect.y + 10), 1)
+        self.lore_close_rect = close_rect
+
+        # Menu bar.
+        menu_y = win_y + 24
+        menu_h = 20
+        pygame.draw.rect(surface, face, (win_x + 3, menu_y, win_w - 6, menu_h))
+        pygame.draw.line(surface, (128, 128, 128), (win_x + 3, menu_y + menu_h - 1), (win_x + win_w - 4, menu_y + menu_h - 1), 1)
+        current_items = self._get_lore_current_items(logic)
+        menu_model = self._get_lore_menu_model(logic, current_items)
+        self.lore_menu_rects = []
+        mx = win_x + 8
+        for key, label, _entries in menu_model:
+            label_surface = font.render(label, False, white if key == self.lore_active_menu else black)
+            rect = pygame.Rect(mx - 3, menu_y + 1, label_surface.get_width() + 11, menu_h - 2)
+            if key == self.lore_active_menu:
+                pygame.draw.rect(surface, navy, rect)
+            surface.blit(label_surface, (mx + 2, menu_y + 4))
+            self.lore_menu_rects.append((key, rect))
+            mx += rect.width + 1
+
+        # Navigation toolbar: Back, Forward, Up and the current archive path.
+        toolbar_y = menu_y + menu_h
+        toolbar_h = 29
+        pygame.draw.rect(surface, face, (win_x + 3, toolbar_y, win_w - 6, toolbar_h))
+        pygame.draw.line(surface, white, (win_x + 3, toolbar_y + toolbar_h - 1), (win_x + win_w - 4, toolbar_y + toolbar_h - 1), 1)
+        self.lore_nav_rects = []
+        nav_actions = [
+            ("back", "‹", self.lore_history_index > 0, text["back"]),
+            ("forward", "›", self.lore_history_index < len(self.lore_history) - 1, text["forward"]),
+            ("up", "↑", bool(self.lore_current_path), text["up"]),
+        ]
+        bx = win_x + 7
+        for action, glyph, enabled, tooltip in nav_actions:
+            rect = pygame.Rect(bx, toolbar_y + 3, 27, 22)
+            self._draw_win95_bevel(surface, rect, face, raised=True, depth=1)
+            glyph_surface = bold.render(glyph, False, black if enabled else (128, 128, 128))
+            surface.blit(glyph_surface, glyph_surface.get_rect(center=rect.center))
+            self.lore_nav_rects.append((action, rect))
+            bx += 30
+        pygame.draw.line(surface, (128, 128, 128), (bx + 2, toolbar_y + 5), (bx + 2, toolbar_y + toolbar_h - 5), 1)
+        bx += 10
+
+        address_rect = pygame.Rect(bx, toolbar_y + 3, win_x + win_w - 10 - bx, 22)
+        self._draw_win95_bevel(surface, address_rect, white, raised=False, depth=1)
+        path_parts = self._get_lore_path_breadcrumbs(logic)
+        self.lore_breadcrumb_rects = []
+        crumb_x = address_rect.x + 5
+        crumb_y = address_rect.y + 3
+        for crumb_index, (crumb_label, crumb_path) in enumerate(path_parts):
+            crumb_surface = font.render(crumb_label, False, black)
+            crumb_rect = pygame.Rect(crumb_x, address_rect.y + 2, crumb_surface.get_width() + 6, address_rect.height - 4)
+            if crumb_rect.right > address_rect.right - 18:
+                break
+            surface.blit(crumb_surface, (crumb_x + 3, crumb_y))
+            self.lore_breadcrumb_rects.append((crumb_rect, crumb_path))
+            crumb_x = crumb_rect.right
+            if crumb_index < len(path_parts) - 1:
+                sep = font.render("›", False, dark)
+                surface.blit(sep, (crumb_x, crumb_y))
+                crumb_x += sep.get_width() + 2
+        arrow_rect = pygame.Rect(address_rect.right - 17, address_rect.y + 2, 14, address_rect.height - 4)
+        pygame.draw.polygon(surface, black, [(arrow_rect.x + 3, arrow_rect.y + 7), (arrow_rect.x + 11, arrow_rect.y + 7), (arrow_rect.x + 7, arrow_rect.y + 11)])
+
+        # Main white icon-view panel with classic vertical scrollbar.
+        status_h = 21 if self.lore_status_bar_visible else 0
+        content_y = toolbar_y + toolbar_h + 2
+        status_y = win_y + win_h - status_h - 3
+        content_h = max(50, status_y - content_y - 2)
+        view_x = win_x + 5
+        view_y = content_y
+        scroll_w = max(15, int(round(15 * ui_scale)))
+        view_w = win_w - 10 - scroll_w - 2
+        self.lore_view_rect = pygame.Rect(view_x, view_y, view_w, content_h)
+        self._draw_win95_bevel(surface, self.lore_view_rect, white, raised=False, depth=1)
+        self.lore_view_rect = self.lore_view_rect.inflate(-2, -2)
+        self.lore_view_rect.x += 1
+        self.lore_view_rect.y += 1
+        self.lore_view_rect.width -= 2
+        self.lore_view_rect.height -= 2
+
+        scrollbar = pygame.Rect(view_x + view_w, view_y, scroll_w, content_h)
+        self.lore_scroll_track_rect = scrollbar
+        pygame.draw.rect(surface, face, scrollbar)
+        self.lore_scroll_up_rect = pygame.Rect(scrollbar.x, scrollbar.y, scroll_w, scroll_w)
+        self.lore_scroll_down_rect = pygame.Rect(scrollbar.x, scrollbar.bottom - scroll_w, scroll_w, scroll_w)
+        self._draw_win95_bevel(surface, self.lore_scroll_up_rect, face, raised=True, depth=1)
+        self._draw_win95_bevel(surface, self.lore_scroll_down_rect, face, raised=True, depth=1)
+        arrow_pad = max(3, scroll_w // 3)
+        pygame.draw.polygon(surface, black, [(scrollbar.centerx, scrollbar.y + arrow_pad), (scrollbar.x + arrow_pad, scrollbar.y + scroll_w - arrow_pad), (scrollbar.right - arrow_pad, scrollbar.y + scroll_w - arrow_pad)])
+        pygame.draw.polygon(surface, black, [(scrollbar.centerx, scrollbar.bottom - arrow_pad), (scrollbar.x + arrow_pad, scrollbar.bottom - scroll_w + arrow_pad), (scrollbar.right - arrow_pad, scrollbar.bottom - scroll_w + arrow_pad)])
+
+        items = current_items
+        cell_w = max(88, int(round(88 * ui_scale)))
+        cell_h = max(78, int(round(78 * ui_scale)))
+        icon_size = max(32, int(round(32 * ui_scale)))
+        available_w = max(1, self.lore_view_rect.width - 8)
+        columns = max(1, available_w // cell_w)
+        rows = (len(items) + columns - 1) // columns
+        visible_rows = max(1, (self.lore_view_rect.height - 8) // cell_h)
+        max_scroll = max(0, rows - visible_rows)
+        self.lore_grid_cols = columns
+        self.lore_visible_rows = visible_rows
+        self.lore_total_rows = rows
+        self.lore_max_scroll = max_scroll
+        self.lore_scroll_y = max(0, min(int(self.lore_scroll_y), max_scroll))
+        self.lore_max_scroll = max_scroll
+
+        track_inner = pygame.Rect(scrollbar.x + 2, scrollbar.y + scroll_w, scroll_w - 4, max(1, scrollbar.height - 2 * scroll_w))
+        thumb_h = track_inner.height if rows <= visible_rows else max(max(20, int(20 * ui_scale)), int(track_inner.height * visible_rows / max(1, rows)))
+        thumb_travel = max(0, track_inner.height - thumb_h)
+        thumb_y = track_inner.y + (int(thumb_travel * self.lore_scroll_y / max_scroll) if max_scroll else 0)
+        self.lore_scroll_thumb_rect = pygame.Rect(track_inner.x, thumb_y, track_inner.width, thumb_h)
+        self._draw_win95_bevel(surface, self.lore_scroll_thumb_rect, face, raised=True, depth=1)
+
+        self.lore_item_rects = []
+        self.lore_item_indices = []
+        self.lore_hover_index = -1 if not hasattr(self, "lore_hover_index") else self.lore_hover_index
+        first_index = self.lore_scroll_y * columns
+        last_index = min(len(items), (self.lore_scroll_y + visible_rows + 1) * columns)
+        for index in range(first_index, last_index):
+            row = index // columns - self.lore_scroll_y
+            col = index % columns
+            cell_x = self.lore_view_rect.x + 4 + col * cell_w
+            cell_y = self.lore_view_rect.y + 4 + row * cell_h
+            cell_rect = pygame.Rect(cell_x, cell_y, cell_w - 2, cell_h - 2)
+            if cell_rect.bottom > self.lore_view_rect.bottom:
+                continue
+            selected = index == self.lore_selection_index or index in self.lore_selected_indices
+            hovered = index == self.lore_hover_index
+            if selected:
+                pygame.draw.rect(surface, (214, 226, 246), cell_rect)
+                self._draw_dotted_rect(surface, cell_rect, navy)
+            elif hovered:
+                pygame.draw.rect(surface, (238, 242, 248), cell_rect)
+            icon_rect = pygame.Rect(cell_rect.centerx - icon_size // 2, cell_rect.y + 3, icon_size, icon_size)
+            self._draw_lore_explorer_icon(surface, items[index], icon_rect)
+            name = str(items[index].get("name", "???"))
+            words = name.split() or [name]
+            lines = []
+            line = ""
+            for word in words:
+                trial = (line + " " + word).strip()
+                if font.size(trial)[0] <= cell_rect.width - 4 or not line:
+                    line = trial
+                else:
+                    lines.append(line)
+                    line = word
+            if line:
+                lines.append(line)
+            lines = lines[:2]
+            text_y = icon_rect.bottom + 2
+            text_color = black
+            for line_text in lines:
+                text_surface = font.render(line_text, False, text_color)
+                surface.blit(text_surface, text_surface.get_rect(center=(cell_rect.centerx, text_y + 6)))
+                text_y += 12
+            self.lore_item_rects.append(cell_rect)
+            self.lore_item_indices.append(index)
+
+        # Status bar with recessed segments.
+        self.lore_status_bar_rect = None
+        if self.lore_status_bar_visible:
+            status_rect = pygame.Rect(win_x + 4, status_y, win_w - 8, status_h - 1)
+            self.lore_status_bar_rect = status_rect
+            self._draw_win95_bevel(surface, status_rect, face, raised=False, depth=1)
+            selected_count = len(self.lore_selected_indices) or (1 if self.lore_selection_index >= 0 else 0)
+            status_label = f"{len(items)} {text['objects']}"
+            if selected_count:
+                status_label += f"    {selected_count} {text['selected']}"
+            if self.lore_about_message:
+                status_label = self.lore_about_message
+            status_surface = font.render(status_label, False, black)
+            surface.blit(status_surface, (status_rect.x + 7, status_rect.y + 3))
+            panel_x = status_rect.x + int(status_rect.width * 0.65)
+            pygame.draw.line(surface, (128, 128, 128), (panel_x, status_rect.y + 2), (panel_x, status_rect.bottom - 2), 1)
+            pygame.draw.line(surface, white, (panel_x + 1, status_rect.y + 2), (panel_x + 1, status_rect.bottom - 2), 1)
+
+        # Pull-down menu is drawn last so it overlays the file view.
+        self.lore_dropdown_rect = None
+        self.lore_dropdown_item_rects = []
+        if self.lore_active_menu is not None:
+            active = next((entry for entry in menu_model if entry[0] == self.lore_active_menu), None)
+            active_rect = next((rect for key, rect in self.lore_menu_rects if key == self.lore_active_menu), None)
+            if active and active_rect:
+                entries = active[2]
+                item_h, sep_h = 19, 7
+                drop_w = max(150, max((font.size(e[0])[0] + 34 for e in entries if e), default=120))
+                drop_h = 6 + sum(sep_h if e is None else item_h for e in entries)
+                drop_x = min(active_rect.x, win_x + win_w - drop_w - 4)
+                drop = pygame.Rect(drop_x, menu_y + menu_h - 1, drop_w, drop_h)
+                self._draw_win95_bevel(surface, drop, face, raised=True, depth=2)
+                self.lore_dropdown_rect = drop
+                ey = drop.y + 3
+                for entry in entries:
+                    if entry is None:
+                        pygame.draw.line(surface, (128, 128, 128), (drop.x + 5, ey + 2), (drop.right - 5, ey + 2), 1)
+                        pygame.draw.line(surface, white, (drop.x + 5, ey + 3), (drop.right - 5, ey + 3), 1)
+                        ey += sep_h
+                        continue
+                    label, action, enabled, checked = entry
+                    item_rect = pygame.Rect(drop.x + 2, ey, drop.width - 4, item_h)
+                    if checked:
+                        pygame.draw.line(surface, black, (item_rect.x + 7, item_rect.centery), (item_rect.x + 10, item_rect.centery + 3), 1)
+                        pygame.draw.line(surface, black, (item_rect.x + 10, item_rect.centery + 3), (item_rect.x + 16, item_rect.centery - 4), 1)
+                    color = black if enabled else (128, 128, 128)
+                    surface.blit(font.render(label, False, color), (item_rect.x + 24, item_rect.y + 4))
+                    self.lore_dropdown_item_rects.append((item_rect, action, enabled))
+                    ey += item_h
+
+        self.lore_window_cache = None
+        self.lore_window_dirty = False
+
+    def handle_lore_menu_click(self, logic, pos):
+        if not getattr(logic, "lore_window_open", False):
+            return False
+        for key, rect in self.lore_menu_rects:
+            if rect.collidepoint(pos):
+                self.lore_active_menu = None if self.lore_active_menu == key else key
+                return True
+        for action, rect in self.lore_nav_rects:
+            if rect.collidepoint(pos):
+                self.lore_active_menu = None
+                if action == "back":
+                    return self._activate_lore_menu_action(logic, "back")
+                if action == "forward":
+                    return self._activate_lore_menu_action(logic, "forward")
+                if action == "up":
+                    return self._activate_lore_menu_action(logic, "up")
+        for rect, path in self.lore_breadcrumb_rects:
+            if rect.collidepoint(pos):
+                self.lore_active_menu = None
+                self._set_lore_path(path)
+                return True
+        if self.lore_active_menu is not None and self.lore_dropdown_rect:
+            if self.lore_dropdown_rect.collidepoint(pos):
+                for rect, action, enabled in self.lore_dropdown_item_rects:
+                    if rect.collidepoint(pos):
+                        if enabled:
+                            self._activate_lore_menu_action(logic, action)
+                        else:
+                            self.lore_active_menu = None
+                        return True
+                return True
+            self.lore_active_menu = None
+        return False
+
+    def _get_lore_path_breadcrumbs(self, logic):
+        lang = str(getattr(logic, "current_lang", "RU")).upper()
+        root = TRANSLATIONS.get(lang, TRANSLATIONS.get("RU", {})).get("lore_folders", {}).get("root", [])
+        root_labels = {"RU": "Архив записи", "US": "Recorded Archive", "ES": "Archivo", "DE": "Aufzeichnungsarchiv", "CN": "记录档案"}
+        root_label = root_labels.get(lang, root_labels["US"])
+        result = [(root_label, ())]
+        level = root
+        path = []
+        for index in self.lore_current_path:
+            if not (0 <= index < len(level)):
+                break
+            item = level[index]
+            if item.get("type") != "folder":
+                break
+            path.append(index)
+            result.append((str(item.get("name", "???")), tuple(path)))
+            level = item.get("content", [])
+        return result
+
+    def _set_lore_path(self, path, add_history=True):
+        logic_lang = getattr(getattr(self, "_lore_logic_ref", None), "current_lang", "RU")
+        root = TRANSLATIONS.get(logic_lang, TRANSLATIONS.get("RU", {})).get("lore_folders", {}).get("root", [])
+        valid_path = []
+        level = root
+        for raw_index in path:
+            try:
+                index = int(raw_index)
+            except (TypeError, ValueError):
+                break
+            if not (0 <= index < len(level)) or level[index].get("type") != "folder":
+                break
+            valid_path.append(index)
+            level = level[index].get("content", [])
+        target = tuple(valid_path)
+        if target == tuple(self.lore_current_path):
+            return
+        self.lore_current_path = list(valid_path)
+        self.lore_selection_index = -1
+        self.lore_selected_indices.clear()
+        self.lore_last_clicked_index = -1
+        self.lore_scroll_y = 0
+        self.lore_scroll_row = 0
+        self.lore_active_menu = None
+        if add_history:
+            history = list(getattr(self, "lore_history", [()]))
+            history_index = max(0, min(getattr(self, "lore_history_index", 0), len(history) - 1))
+            history = history[:history_index + 1]
+            if not history or history[-1] != target:
+                history.append(target)
+            self.lore_history = history
+            self.lore_history_index = len(history) - 1
+        self.lore_window_cache = None
+        self.lore_window_dirty = True
+
+    def _draw_lore_explorer_icon(self, target, item, rect):
+        """Render a crisp 32x32 Windows 95-style icon and scale it with nearest-neighbour pixels."""
+        kind = item.get("type", "default")
+        icon = pygame.Surface((32, 32), pygame.SRCALPHA)
+        if kind == "folder":
+            pygame.draw.rect(icon, (112, 80, 0), (2, 9, 28, 19))
+            pygame.draw.rect(icon, (255, 222, 80), (3, 8, 26, 17))
+            pygame.draw.rect(icon, (255, 232, 120), (4, 4, 12, 7))
+            pygame.draw.line(icon, (255, 248, 190), (4, 9), (27, 9), 1)
+            pygame.draw.line(icon, (160, 112, 0), (3, 24), (28, 24), 1)
+            pygame.draw.line(icon, (255, 255, 170), (3, 12), (3, 22), 1)
+        else:
+            paper = pygame.Rect(6, 2, 20, 27)
+            pygame.draw.rect(icon, (64, 64, 64), paper)
+            pygame.draw.rect(icon, (255, 255, 255), paper.inflate(-2, -2))
+            pygame.draw.polygon(icon, (192, 192, 192), [(20, 3), (24, 7), (20, 7)])
+            pygame.draw.line(icon, (128, 128, 128), (20, 3), (20, 7), 1)
+            pygame.draw.line(icon, (128, 128, 128), (20, 7), (24, 7), 1)
+            if kind == "image":
+                pygame.draw.rect(icon, (128, 192, 224), (9, 12, 14, 11))
+                pygame.draw.circle(icon, (255, 208, 0), (19, 15), 2)
+                pygame.draw.polygon(icon, (0, 128, 0), [(9, 22), (14, 16), (18, 22)])
+                pygame.draw.polygon(icon, (0, 96, 0), [(14, 22), (20, 17), (23, 22)])
+            elif kind == "audio":
+                pygame.draw.line(icon, (0, 0, 128), (12, 12), (12, 23), 2)
+                pygame.draw.line(icon, (0, 0, 128), (12, 12), (21, 10), 2)
+                pygame.draw.line(icon, (0, 0, 128), (21, 10), (21, 20), 2)
+                pygame.draw.ellipse(icon, (0, 0, 128), (8, 21, 6, 4))
+                pygame.draw.ellipse(icon, (0, 0, 128), (17, 18, 6, 4))
+            else:
+                for line_y in (12, 16, 20, 24):
+                    pygame.draw.line(icon, (0, 0, 128), (9, line_y), (22, line_y), 1)
+        if rect.size != icon.get_size():
+            icon = pygame.transform.scale(icon, rect.size)
+        target.blit(icon, rect)
+
+    def _open_lore_item(self, logic, index):
+        items = self._get_lore_current_items(logic)
+        if not (0 <= index < len(items)):
+            return False
+        item = items[index]
+        kind = item.get("type")
+        if kind == "folder":
+            self._set_lore_path(list(self.lore_current_path) + [index])
+            return True
+        if kind == "text":
+            key = item.get("content_key")
+            if key:
+                lang = getattr(logic, "current_lang", "RU")
+                data = TRANSLATIONS.get(lang, TRANSLATIONS.get("RU", {}))
+                content = data.get("lore_texts", {}).get(key, "Содержимое не найдено")
+                logic.lore_text_viewer_open = True
+                logic.lore_text_viewer_title = item.get("name", "ТЕКСТ")
+                logic.lore_text_viewer_content = content
+                return True
+        elif kind == "audio":
+            file_name = item.get("file")
+            if file_name:
+                try:
+                    from audio_system import play_sound
+                    play_sound(f"assets/music/lore/{file_name}")
+                    return True
+                except Exception:
+                    _LOGGER.exception("Ошибка воспроизведения аудио архива: %s", file_name)
+        elif kind == "image":
+            file_name = item.get("file")
+            if file_name:
+                try:
+                    import os
+                    image_path = f"assets/bg_sprites/{file_name}"
+                    if os.path.exists(image_path):
+                        logic.lore_image_viewer_open = True
+                        logic.lore_image_viewer_image = pygame.image.load(image_path).convert_alpha()
+                        return True
+                    _LOGGER.warning("Изображение архива не найдено: %s", image_path)
+                except Exception:
+                    _LOGGER.exception("Ошибка загрузки изображения архива: %s", image_path)
+        return False
+
+    def _activate_lore_menu_action(self, logic, action):
+        items = self._get_lore_current_items(logic)
+        self.lore_active_menu = None
+        if action == "open":
+            return self._open_lore_item(logic, self.lore_selection_index)
+        if action == "close":
+            logic.lore_window_open = False
+            self.lore_current_path = []
+            self.lore_selection_index = -1
+            self.lore_selected_indices.clear()
+            self.lore_history = [()]
+            self.lore_history_index = 0
+            self.lore_scroll_y = 0
+            self.lore_scroll_dragging = False
+            self.lore_window_dirty = True
+            return True
+        if action == "select_all":
+            self.lore_selected_indices = set(range(len(items)))
+            self.lore_selection_index = 0 if items else -1
+            return True
+        if action == "clear_selection":
+            self.lore_selected_indices.clear()
+            self.lore_selection_index = -1
+            return True
+        if action == "refresh":
+            self.lore_scroll_y = 0
+            self.lore_window_dirty = True
+            return True
+        if action == "status":
+            self.lore_status_bar_visible = not self.lore_status_bar_visible
+            self.lore_window_dirty = True
+            return True
+        if action == "back" and self.lore_history_index > 0:
+            self.lore_history_index -= 1
+            self._set_lore_path(self.lore_history[self.lore_history_index], add_history=False)
+            return True
+        if action == "forward" and self.lore_history_index < len(self.lore_history) - 1:
+            self.lore_history_index += 1
+            self._set_lore_path(self.lore_history[self.lore_history_index], add_history=False)
+            return True
+        if action == "up" and self.lore_current_path:
+            self._set_lore_path(self.lore_current_path[:-1])
+            return True
+        if action == "root":
+            self._set_lore_path([])
+            return True
+        if action == "about":
+            self.lore_about_message = "PALCHIK.EXE — Архив записей"
+            return True
+        return False
+
+    def _draw_dotted_rect(self, target, rect, color):
+        for x in range(rect.left, rect.right, 4):
+            pygame.draw.line(target, color, (x, rect.top), (min(x + 1, rect.right - 1), rect.top), 1)
+            pygame.draw.line(target, color, (x, rect.bottom - 1), (min(x + 1, rect.right - 1), rect.bottom - 1), 1)
+        for y in range(rect.top, rect.bottom, 4):
+            pygame.draw.line(target, color, (rect.left, y), (rect.left, min(y + 1, rect.bottom - 1)), 1)
+            pygame.draw.line(target, color, (rect.right - 1, y), (rect.right - 1, min(y + 1, rect.bottom - 1)), 1)
+
+    def _navigate_lore_history(self, direction):
+        target_index = self.lore_history_index + direction
+        if 0 <= target_index < len(self.lore_history):
+            self.lore_history_index = target_index
+            path = self.lore_history[target_index]
+            self._set_lore_path(path, add_history=False)
+            return True
+        return False
+
+    def handle_lore_wheel(self, logic, pos, wheel_y):
+        if not getattr(logic, "lore_window_open", False) or not self.lore_view_rect:
+            return False
+        if not self.lore_view_rect.collidepoint(pos):
+            return False
+        if self.lore_max_scroll <= 0:
+            return True
+        self.lore_scroll_y = max(0, min(self.lore_max_scroll, self.lore_scroll_y - int(wheel_y)))
+        self.lore_window_dirty = True
+        return True
+
+    def handle_lore_motion(self, logic, pos):
+        if not getattr(logic, "lore_window_open", False):
+            return
+        if self.lore_scroll_dragging:
+            self.handle_lore_scroll_drag(pos)
+            return
+        new_hover = -1
+        for rect, index in zip(self.lore_item_rects, self.lore_item_indices):
+            if rect.collidepoint(pos):
+                new_hover = index
+                break
+        if new_hover != self.lore_hover_index:
+            self.lore_hover_index = new_hover
+            self.lore_window_dirty = True
+        if self.lore_active_menu is not None:
+            for key, rect in self.lore_menu_rects:
+                if rect.collidepoint(pos) and key != self.lore_active_menu:
+                    self.lore_active_menu = key
+                    self.lore_window_dirty = True
+                    break
+
+    def handle_lore_scroll_drag(self, pos):
+        if not self.lore_scroll_dragging or not self.lore_scroll_track_rect or not self.lore_scroll_thumb_rect:
+            return
+        scroll_w = self.lore_scroll_track_rect.width
+        track_y = self.lore_scroll_track_rect.y + scroll_w
+        track_h = max(1, self.lore_scroll_track_rect.height - 2 * scroll_w)
+        thumb_h = self.lore_scroll_thumb_rect.height
+        travel = max(1, track_h - thumb_h)
+        delta = pos[1] - self.lore_scroll_drag_start_y
+        row_delta = round(delta * self.lore_max_scroll / travel)
+        new_row = max(0, min(self.lore_max_scroll, self.lore_scroll_drag_start_row + row_delta))
+        if new_row != self.lore_scroll_y:
+            self.lore_scroll_y = new_row
+            self.lore_window_dirty = True
+
+    def handle_lore_key(self, logic, event):
+        if not getattr(logic, "lore_window_open", False):
+            return False
+        key = event.key
+        mods = getattr(event, "mod", 0)
+        items = self._get_lore_current_items(logic)
+        if key == pygame.K_ESCAPE:
+            if self.lore_active_menu is not None:
+                self.lore_active_menu = None
+            else:
+                self._activate_lore_menu_action(logic, "close")
+            return True
+        if key == pygame.K_BACKSPACE:
+            if self.lore_current_path:
+                self._activate_lore_menu_action(logic, "up")
+            return True
+        if key == pygame.K_LEFT and mods & pygame.KMOD_ALT:
+            self._activate_lore_menu_action(logic, "back")
+            return True
+        if key == pygame.K_RIGHT and mods & pygame.KMOD_ALT:
+            self._activate_lore_menu_action(logic, "forward")
+            return True
+        if mods & pygame.KMOD_CTRL and key == pygame.K_a:
+            self._activate_lore_menu_action(logic, "select_all")
+            return True
+        if key in (pygame.K_RETURN, pygame.K_KP_ENTER):
+            if self.lore_selection_index >= 0:
+                self._open_lore_item(logic, self.lore_selection_index)
+            return True
+        if not items:
+            return key in (pygame.K_UP, pygame.K_DOWN, pygame.K_LEFT, pygame.K_RIGHT, pygame.K_HOME, pygame.K_END)
+        index = self.lore_selection_index if self.lore_selection_index >= 0 else 0
+        if key == pygame.K_LEFT:
+            index -= 1
+        elif key == pygame.K_RIGHT:
+            index += 1
+        elif key == pygame.K_UP:
+            index -= self.lore_grid_cols
+        elif key == pygame.K_DOWN:
+            index += self.lore_grid_cols
+        elif key == pygame.K_HOME:
+            index = 0
+        elif key == pygame.K_END:
+            index = len(items) - 1
+        elif key == pygame.K_PAGEUP:
+            index -= self.lore_grid_cols * self.lore_visible_rows
+        elif key == pygame.K_PAGEDOWN:
+            index += self.lore_grid_cols * self.lore_visible_rows
+        else:
+            return False
+        index = max(0, min(len(items) - 1, index))
+        self.lore_selection_index = index
+        self.lore_selected_indices = {index}
+        row = index // max(1, self.lore_grid_cols)
+        if row < self.lore_scroll_y:
+            self.lore_scroll_y = row
+        elif row >= self.lore_scroll_y + self.lore_visible_rows:
+            self.lore_scroll_y = min(self.lore_max_scroll, row - self.lore_visible_rows + 1)
+        self.lore_window_dirty = True
+        return True
+
+    def _draw_text_viewer(self, surface, logic):
+        """Отрисовка окна просмотра текстового файла."""
+        w, h = surface.get_size()
+        win_w, win_h = 500, 400
+        win_x = (w - win_w) // 2
+        win_y = (h - win_h) // 2
+        title_bar_h = 24
+        
+        # Полупрозрачный фон
+        overlay = pygame.Surface((w, h), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 180))
+        surface.blit(overlay, (0, 0))
+        
+        # Рамка окна
+        pygame.draw.rect(surface, (128, 128, 128), (win_x, win_y, win_w, win_h), 2)
+        pygame.draw.rect(surface, (192, 192, 192), (win_x + 2, win_y + 2, win_w - 4, 1))
+        pygame.draw.rect(surface, (192, 192, 192), (win_x + 2, win_y + 2, 1, win_h - 4))
+        pygame.draw.rect(surface, (64, 64, 64), (win_x + 2, win_y + win_h - 3, win_w - 4, 1))
+        pygame.draw.rect(surface, (64, 64, 64), (win_x + win_w - 3, win_y + 2, 1, win_h - 4))
+        
+        # Основная область
+        pygame.draw.rect(surface, (255, 255, 255), (win_x + 3, win_y + title_bar_h, win_w - 6, win_h - title_bar_h - 3))
+        
+        # Заголовок
+        title_rect = pygame.Rect(win_x + 3, win_y + 3, win_w - 6, title_bar_h - 3)
+        pygame.draw.rect(surface, (0, 0, 128), title_rect)
+        title_font = pygame.font.SysFont("Arial", 14, bold=True)
+        title_text = getattr(logic, "lore_text_viewer_title", "ТЕКСТОВЫЙ ФАЙЛ")
+        title_surf = title_font.render(title_text, True, (255, 255, 255))
+        surface.blit(title_surf, (win_x + 8, win_y + 6))
+        
+        # Кнопка закрытия
+        close_x = win_x + win_w - 26
+        close_y = win_y + 4
+        close_rect = pygame.Rect(close_x - 4, close_y - 4, 28, 28)
+        pygame.draw.rect(surface, (255, 0, 0), (close_x, close_y, 20, 20))
+        pygame.draw.rect(surface, (128, 128, 128), (close_x, close_y, 20, 20), 1)
+        close_surf = self.font_sys_close.render("X", True, (255, 255, 255))
+        surface.blit(close_surf, close_surf.get_rect(center=(close_x + 10, close_y + 10)))
+        self.lore_text_viewer_close_rect = close_rect
+        
+        # Текст содержимого
+        content = getattr(logic, "lore_text_viewer_content", "")
+        text_font = pygame.font.SysFont("Arial", 11, bold=False)
+        lines = content.split('\n')
+        
+        text_y = win_y + title_bar_h + 16
+        text_x = win_x + 16
+        max_text_w = win_w - 32
+        
+        for line in lines:
+            if not line.strip():
+                text_y += 8
+                continue
+            # Разбиваем длинные строки
+            words = line.split()
+            current_line = []
+            for word in words:
+                test_line = " ".join(current_line + [word])
+                if text_font.size(test_line)[0] <= max_text_w:
+                    current_line.append(word)
+                else:
+                    if current_line:
+                        line_surf = text_font.render(" ".join(current_line), True, (0, 0, 0))
+                        surface.blit(line_surf, (text_x, text_y))
+                        text_y += 16
+                    current_line = [word]
+            if current_line:
+                line_surf = text_font.render(" ".join(current_line), True, (0, 0, 0))
+                surface.blit(line_surf, (text_x, text_y))
+                text_y += 16
+        
+        # Кнопка OK
+        ok_btn_w, ok_btn_h = 60, 24
+        ok_btn_x = win_x + (win_w - ok_btn_w) // 2
+        ok_btn_y = win_y + win_h - 40
+        ok_btn_rect = pygame.Rect(ok_btn_x, ok_btn_y, ok_btn_w, ok_btn_h)
+        pygame.draw.rect(surface, (192, 192, 192), ok_btn_rect)
+        pygame.draw.rect(surface, (255, 255, 255), ok_btn_rect, 1)
+        pygame.draw.line(surface, (128, 128, 128), (ok_btn_x, ok_btn_y + ok_btn_h - 1),
+                         (ok_btn_x + ok_btn_w - 1, ok_btn_y + ok_btn_h - 1))
+        pygame.draw.line(surface, (128, 128, 128), (ok_btn_x + ok_btn_w - 1, ok_btn_y),
+                         (ok_btn_x + ok_btn_w - 1, ok_btn_y + ok_btn_h - 1))
+        ok_font = pygame.font.SysFont("Arial", 10, bold=True)
+        ok_surf = ok_font.render("OK", True, (0, 0, 0))
+        surface.blit(ok_surf, ok_surf.get_rect(center=ok_btn_rect.center))
+        self.lore_text_viewer_ok_rect = ok_btn_rect
+
+    def _draw_image_viewer(self, surface, logic):
+        """Отрисовка окна просмотра изображения."""
+        w, h = surface.get_size()
+        
+        # Получаем изображение
+        image = getattr(logic, "lore_image_viewer_image", None)
+        if image is None:
+            return
+        
+        # Полупрозрачный фон
+        overlay = pygame.Surface((w, h), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 180))
+        surface.blit(overlay, (0, 0))
+        
+        # Масштабируем изображение
+        img_w, img_h = image.get_size()
+        max_w = int(w * 0.8)
+        max_h = int(h * 0.8)
+        
+        scale = min(max_w / img_w, max_h / img_h)
+        if scale < 1:
+            new_w = int(img_w * scale)
+            new_h = int(img_h * scale)
+            scaled_img = pygame.transform.scale(image, (new_w, new_h))
+        else:
+            scaled_img = image
+            new_w, new_h = img_w, img_h
+        
+        # Центрируем
+        img_x = (w - new_w) // 2
+        img_y = (h - new_h) // 2
+        
+        # Рамка вокруг изображения
+        pygame.draw.rect(surface, (128, 128, 128), (img_x - 2, img_y - 2, new_w + 4, new_h + 4), 2)
+        surface.blit(scaled_img, (img_x, img_y))
+        
+        # Кнопка закрытия
+        close_x = img_x + new_w - 26
+        close_y = img_y - 30
+        close_rect = pygame.Rect(close_x - 4, close_y - 4, 28, 28)
+        pygame.draw.rect(surface, (255, 0, 0), (close_x, close_y, 20, 20))
+        pygame.draw.rect(surface, (128, 128, 128), (close_x, close_y, 20, 20), 1)
+        close_surf = self.font_sys_close.render("X", True, (255, 255, 255))
+        surface.blit(close_surf, close_surf.get_rect(center=(close_x + 10, close_y + 10)))
+        self.lore_image_viewer_close_rect = close_rect
+
+    def handle_lore_click(self, logic, pos):
+        if not getattr(logic, "lore_window_open", False):
+            return False
+        if self.lore_close_rect and self.lore_close_rect.collidepoint(pos):
+            return self._activate_lore_menu_action(logic, "close")
+        if self.lore_scroll_up_rect and self.lore_scroll_up_rect.collidepoint(pos):
+            self.lore_scroll_y = max(0, self.lore_scroll_y - 1)
+            self.lore_window_dirty = True
+            return True
+        if self.lore_scroll_down_rect and self.lore_scroll_down_rect.collidepoint(pos):
+            self.lore_scroll_y = min(self.lore_max_scroll, self.lore_scroll_y + 1)
+            self.lore_window_dirty = True
+            return True
+        if self.lore_scroll_thumb_rect and self.lore_scroll_thumb_rect.collidepoint(pos):
+            self.lore_scroll_dragging = True
+            self.lore_scroll_drag_start_y = pos[1]
+            self.lore_scroll_drag_start_row = self.lore_scroll_y
+            return True
+        if self.lore_scroll_track_rect and self.lore_scroll_track_rect.collidepoint(pos):
+            if self.lore_scroll_thumb_rect and pos[1] < self.lore_scroll_thumb_rect.top:
+                self.lore_scroll_y = max(0, self.lore_scroll_y - self.lore_visible_rows)
+            else:
+                self.lore_scroll_y = min(self.lore_max_scroll, self.lore_scroll_y + self.lore_visible_rows)
+            self.lore_window_dirty = True
+            return True
+        for rect, index in zip(self.lore_item_rects, self.lore_item_indices):
+            if rect.collidepoint(pos):
+                mods = pygame.key.get_mods()
+                now = pygame.time.get_ticks()
+                double_click = index == self.lore_last_clicked_index and now - self.lore_last_clicked_time <= 420
+                if mods & pygame.KMOD_CTRL:
+                    if index in self.lore_selected_indices:
+                        self.lore_selected_indices.remove(index)
+                        self.lore_selection_index = next(iter(self.lore_selected_indices), -1)
+                    else:
+                        self.lore_selected_indices.add(index)
+                        self.lore_selection_index = index
+                else:
+                    self.lore_selected_indices = {index}
+                    self.lore_selection_index = index
+                self.lore_last_clicked_index = index
+                self.lore_last_clicked_time = now
+                self.lore_about_message = ''
+                self.lore_window_dirty = True
+                if double_click:
+                    self._open_lore_item(logic, index)
+                    self.lore_last_clicked_index = -1
+                return True
+        if self.lore_view_rect and self.lore_view_rect.collidepoint(pos):
+            self.lore_selected_indices.clear()
+            self.lore_selection_index = -1
+            self.lore_last_clicked_index = -1
+            self.lore_about_message = ''
+            self.lore_window_dirty = True
+            return True
+        return False
+
+    def handle_lore_viewer_click(self, logic, pos):
+        """Обработка кликов в просмотрщиках (текст/изображение)."""
+        # Закрытие просмотрщика текста
+        if getattr(logic, "lore_text_viewer_open", False):
+            if hasattr(self, 'lore_text_viewer_close_rect') and self.lore_text_viewer_close_rect.collidepoint(pos):
+                logic.lore_text_viewer_open = False
+                return True
+            if hasattr(self, 'lore_text_viewer_ok_rect') and self.lore_text_viewer_ok_rect.collidepoint(pos):
+                logic.lore_text_viewer_open = False
+                return True
+        
+        # Закрытие просмотрщика изображений
+        if getattr(logic, "lore_image_viewer_open", False):
+            if hasattr(self, 'lore_image_viewer_close_rect') and self.lore_image_viewer_close_rect.collidepoint(pos):
+                logic.lore_image_viewer_open = False
+                logic.lore_image_viewer_image = None
+                return True
+        
+        return False
+
+    def _generate_icons(self):
+        """Генерация пиксельных иконок Windows 95 стиля."""
+        self.icon_cache = {}
+        
+        # Папка (закрытая)
+        folder = pygame.Surface((24, 24), pygame.SRCALPHA)
+        pygame.draw.rect(folder, (255, 215, 0), (2, 8, 20, 14))  # тело
+        pygame.draw.rect(folder, (255, 215, 0), (2, 4, 10, 6))    # клапан
+        pygame.draw.line(folder, (160, 130, 0), (2, 8), (22, 8), 1)  # сгиб
+        pygame.draw.rect(folder, (160, 130, 0), (4, 10, 16, 10), 1)  # тень
+        self.icon_cache["folder"] = folder
+        
+        # Текстовый файл
+        file_text = pygame.Surface((24, 24), pygame.SRCALPHA)
+        pygame.draw.rect(file_text, (255, 255, 255), (2, 2, 20, 20))  # лист
+        pygame.draw.rect(file_text, (128, 128, 128), (2, 2, 20, 20), 1)  # рамка
+        pygame.draw.polygon(file_text, (192, 192, 192), [(18, 2), (22, 2), (22, 6)])  # загнутый угол
+        pygame.draw.polygon(file_text, (128, 128, 128), [(18, 2), (18, 6), (22, 6)], 1)  # линия угла
+        for y in range(6, 16, 4):  # линии текста
+            pygame.draw.line(file_text, (0, 0, 0), (6, y), (18, y), 1)
+        self.icon_cache["file_text"] = file_text
+        
+        # Аудиофайл
+        file_audio = pygame.Surface((24, 24), pygame.SRCALPHA)
+        pygame.draw.rect(file_audio, (255, 255, 255), (2, 2, 20, 20))
+        pygame.draw.rect(file_audio, (128, 128, 128), (2, 2, 20, 20), 1)
+        pygame.draw.polygon(file_audio, (192, 192, 192), [(18, 2), (22, 2), (22, 6)])
+        pygame.draw.polygon(file_audio, (128, 128, 128), [(18, 2), (18, 6), (22, 6)], 1)
+        # Динамик (простой)
+        pygame.draw.rect(file_audio, (0, 0, 0), (8, 10, 4, 4))  # корпус
+        pygame.draw.polygon(file_audio, (0, 0, 0), [(12, 10), (16, 6), (16, 18), (12, 14)])  # конус
+        self.icon_cache["file_audio"] = file_audio
+        
+        # Изображение
+        file_image = pygame.Surface((24, 24), pygame.SRCALPHA)
+        pygame.draw.rect(file_image, (255, 255, 255), (2, 2, 20, 20))
+        pygame.draw.rect(file_image, (128, 128, 128), (2, 2, 20, 20), 1)
+        pygame.draw.polygon(file_image, (192, 192, 192), [(18, 2), (22, 2), (22, 6)])
+        pygame.draw.polygon(file_image, (128, 128, 128), [(18, 2), (18, 6), (22, 6)], 1)
+        # Пейзаж: солнце и горы
+        pygame.draw.circle(file_image, (255, 255, 0), (8, 8), 2)  # солнце
+        pygame.draw.polygon(file_image, (0, 128, 0), [(4, 18), (10, 12), (16, 18)])  # гора 1
+        pygame.draw.polygon(file_image, (0, 100, 0), [(10, 18), (16, 13), (22, 18)])  # гора 2
+        self.icon_cache["file_image"] = file_image
+        
+        # Файл по умолчанию
+        file_default = pygame.Surface((24, 24), pygame.SRCALPHA)
+        pygame.draw.rect(file_default, (255, 255, 255), (2, 2, 20, 20))
+        pygame.draw.rect(file_default, (128, 128, 128), (2, 2, 20, 20), 1)
+        pygame.draw.polygon(file_default, (192, 192, 192), [(18, 2), (22, 2), (22, 6)])
+        pygame.draw.polygon(file_default, (128, 128, 128), [(18, 2), (18, 6), (22, 6)], 1)
+        # Вопросительный знак
+        question_font = pygame.font.SysFont("Arial", 16, bold=True)
+        q_surf = question_font.render("?", True, (0, 0, 0))
+        file_default.blit(q_surf, (10, 8))
+        self.icon_cache["file_default"] = file_default
+
+    def _load_fonts(self):
+        font_path = "assets/shrift/ContraPhobotech-Regular.otf"
+        self.font_asset_path = font_path
+        try:
+            self.font_main = pygame.font.Font(font_path, 22)
+            self.font_sub = pygame.font.Font(font_path, 16)
+            self.font_ui = pygame.font.Font(font_path, 14)
+        except:
+            self.font_main = None
+            self.font_sub = None
+            self.font_ui = None
+        self.font_icon = pygame.font.SysFont("Segoe UI Symbol", 22, bold=True)
+        self.font_sys_close = pygame.font.SysFont("Arial", 20, bold=True)
+        self.font_lore_ui = pygame.font.SysFont("MS Sans Serif", 11)
+        self.font_lore_ui_bold = pygame.font.SysFont("MS Sans Serif", 11, bold=True)
+        try:
+            self.font_name_entry = pygame.font.Font(font_path, 28)
+            self.font_name_entry_sub = pygame.font.Font(font_path, 16)
+            self.word_shock_title_font = pygame.font.Font(font_path, 48)
+            self.word_shock_modal_font = pygame.font.Font(font_path, 21)
+            self.word_shock_input_font = pygame.font.Font(font_path, 22)
+            self.word_shock_small_font = pygame.font.Font(font_path, 16)
+        except:
+            self.font_name_entry = None
+            self.font_name_entry_sub = None
+            self.word_shock_title_font = pygame.font.SysFont("Courier New", 48, bold=True)
+            self.word_shock_modal_font = pygame.font.SysFont("Courier New", 21, bold=True)
+            self.word_shock_input_font = pygame.font.SysFont("Courier New", 22, bold=True)
+            self.word_shock_small_font = pygame.font.SysFont("Courier New", 16, bold=True)
+
+    def _render(self, text, font_obj, color, font_name="Courier New", size=14, bold=True):
+        """Рендерит текст через кэш или напрямую если font_obj задан."""
+        if font_obj is not None:
+            return font_obj.render(text, True, color)
+        return text_cache.get_surface(text, font_name, size, color, bold=bold)
+
+    def _render_sub(self, text, color):
+        return self._render(text, self.font_sub, color, "Courier New", 16, bold=True)
+
+    def _render_ui(self, text, color, font_name="Courier New", size=14, bold=True):
+        return self._render(text, self.font_ui, color, font_name, size, bold)
+
+    def _render_main(self, text, color):
+        return self._render(text, self.font_main, color, "Courier New", 22, bold=True)
+
+
+    def set_phrase(self, text, glitch_intensity, total_clicks, is_horror=False, saved_meme=""):
+        if text == self.target_phrase and self.horror_active == is_horror:
+            return
+            
+        if is_horror and not self.horror_active:
+            self.saved_meme = saved_meme if saved_meme else "..."
+            self.horror_active = True
+            self.target_phrase = text
+            self.typewriter_buffer = ""
+            self.typewriter_index = 0
+            self.typewriter_last_time = pygame.time.get_ticks()
+            self.glitch_intensity = glitch_intensity
+            self.display_phrase = ""
+            base_duration = 1.5
+            if total_clicks >= 2800: base_duration = 5.5
+            elif total_clicks >= 2500: base_duration = 3.5
+            elif total_clicks >= 2000: base_duration = 2.5
+            elif total_clicks >= 1500: base_duration = 1.5
+            self.phrase_finish_time = pygame.time.get_ticks() + int(base_duration * 1000)
+        elif not is_horror:
+            self.target_phrase = text
+            self.typewriter_buffer = ""
+            self.typewriter_index = 0
+            self.typewriter_last_time = pygame.time.get_ticks()
+            self.glitch_intensity = glitch_intensity
+            self.display_phrase = text
+            self.phrase_finish_time = 0
+            self.horror_active = False
+
+    def update_typewriter(self, total_clicks):
+        now = pygame.time.get_ticks()
+        if self.typewriter_index < len(self.target_phrase):
+            if now - self.typewriter_last_time >= self.typewriter_delay:
+                self.typewriter_buffer += self.target_phrase[self.typewriter_index]
+                self.typewriter_index += 1
+                self.typewriter_last_time = now
+                self.display_phrase = self.typewriter_buffer
+        else:
+            self.display_phrase = self.target_phrase
+
+        if self.horror_active and self.phrase_finish_time > 0 and now >= self.phrase_finish_time:
+            self.horror_active = False
+            return False
+        return True
+
+    def apply_glitch(self, text, intensity):
+        if intensity <= 0 or not text:
+            return text
+        result = list(text)
+        for i in range(len(result)):
+            if random.random() < intensity:
+                choice = random.randint(0, 1)
+                if choice == 0:
+                    result[i] = random.choice("@#$%&*§?")
+                elif choice == 1 and i < len(result) - 1:
+                    result[i], result[i+1] = result[i+1], result[i]
+        return "".join(result)
+
+    def trigger_target_animation(self):
+        self.target_scale = 0.82
+        
+    def trigger_label_animation(self):
+        self.label_scale = 1.6
+
+    def update_animations(self):
+        if self.target_scale < 1.0:
+            self.target_scale += 0.04
+        if self.target_scale > 1.0:
+            self.target_scale = 1.0
+            
+        if self.label_scale > 1.0:
+            self.label_scale -= 0.05
+        if self.label_scale < 1.0:
+            self.label_scale = 1.0
+
+        if hasattr(self, "timer_scale") and self.timer_scale < 1.0:
+            self.timer_scale += 0.015
+            if self.timer_scale > 1.0:
+                self.timer_scale = 1.0
+
+    def draw_name_entry(self, surface, lang_code, player_name, is_empty_error=False):
+        """Рисует экран ввода имени."""
+        w, h = surface.get_size()
+        text_data = TRANSLATIONS.get(lang_code, TRANSLATIONS["RU"])
+        
+        # Полупрозрачный фон
+        overlay = pygame.Surface((w, h), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 200))
+        surface.blit(overlay, (0, 0))
+        
+        # Заголовок
+        title = text_data["name_entry_title"]
+        title_surf = text_cache.render_with_font(self.font_name_entry, title, True, (255, 255, 255))
+        title_rect = title_surf.get_rect(center=(w // 2, int(h * 0.25)))
+        surface.blit(title_surf, title_rect)
+        
+        # Поле ввода (подчёркивание)
+        input_y = int(h * 0.42)
+        display_name = player_name if player_name else text_data["name_entry_placeholder"]
+        input_surf = text_cache.render_with_font(self.font_name_entry, display_name, True, (200, 200, 200))
+        input_rect = input_surf.get_rect(center=(w // 2, input_y))
+        surface.blit(input_surf, input_rect)
+        
+        # Подчёркивание под полем ввода
+        line_width = min(w * 0.6, input_surf.get_width() + 40)
+        line_x = w // 2 - line_width // 2
+        pygame.draw.line(surface, (150, 150, 150), (line_x, input_y + 20), (line_x + line_width, input_y + 20), 2)
+        
+        # Мигающий курсор
+        if pygame.time.get_ticks() % 1000 < 500:
+            cursor_x = input_rect.right + 4
+            cursor_y = input_y - 10
+            pygame.draw.line(surface, (255, 255, 255), (cursor_x, cursor_y), (cursor_x, cursor_y + 30), 2)
+        
+        # Кнопка ПРОДОЛЖИТЬ
+        btn_text = text_data["name_entry_button"]
+        btn_surf = text_cache.render_with_font(self.font_name_entry_sub, btn_text, True, (255, 255, 255))
+        btn_rect = btn_surf.get_rect(center=self.rect_name_entry_btn.center)
+        pygame.draw.rect(surface, (40, 40, 40), self.rect_name_entry_btn, border_radius=8)
+        pygame.draw.rect(surface, (100, 100, 100), self.rect_name_entry_btn, width=2, border_radius=8)
+        surface.blit(btn_surf, btn_rect)
+        
+        # Предупреждение если имя пустое
+        if is_empty_error:
+            error_text = text_data["name_entry_empty"]
+            error_surf = text_cache.render_with_font(self.font_name_entry_sub, error_text, True, (214, 48, 49))
+            error_rect = error_surf.get_rect(center=(w // 2, int(h * 0.55)))
+            surface.blit(error_surf, error_rect)
+
+    def _draw_primary_target_button(
+        self, surface, *, logic=None, glitch_intensity=0.0,
+        shadow_offset_x=0, event_mode=False, animation_progress=None,
+    ):
+        """Draw PALCHIK's original green primary button in every presentation."""
+        target_rect = self.rect_target.copy()
+        if self.target_scale != 1.0:
+            target_rect = target_rect.inflate(
+                int(target_rect.width * (self.target_scale - 1)),
+                int(target_rect.height * (self.target_scale - 1)),
+            )
+            target_rect.center = self.rect_target.center
+
+        # RUNNING and GAME_OVER share this exact event-only button anchor.
+        # Normal gameplay keeps the original rect_target position unchanged.
+        if event_mode:
+            target_rect.y -= max(1, int(surface.get_height() * 0.03))
+
+        font = self.font_main or self.font_sub or pygame.font.SysFont("Arial", 22, bold=True)
+        if animation_progress is not None:
+            return self._draw_evt003_button_animation(
+                surface, target_rect, animation_progress, font,
+            )
+
+        if not event_mode and logic is not None and getattr(logic, "clicks_in_cycle", 0) == 9:
+            target_rect.x += random.randint(-3, 3)
+            target_rect.y += random.randint(-3, 3)
+
+        pygame.draw.rect(surface, (20, 120, 40), target_rect, border_radius=12)
+        target_label = "<  >"
+        if (not event_mode and logic is not None
+                and logic.get_phase_index() >= 3 and random.random() < 0.02):
+            target_label = random.choice(["<< >>", "??", "><", "! !"])
+        target_text = target_label if event_mode else self.apply_glitch(target_label, glitch_intensity)
+        img_target = font.render(target_text, True, (255, 255, 255))
+        surface.blit(img_target, img_target.get_rect(center=target_rect.center))
+        return target_rect
+
+    def _draw_evt003_button_animation(self, surface, target_rect, progress, font):
+        """Collapse the same primary button in place: press, lose glow, pixelate, disappear."""
+        progress = max(0.0, min(1.0, float(progress)))
+        scale = 1.0 - progress
+        if scale <= 0.012:
+            return target_rect
+
+        width = max(1, int(target_rect.width * scale))
+        height = max(1, int(target_rect.height * max(0.035, scale)))
+        animated_rect = pygame.Rect(0, 0, width, height)
+        animated_rect.center = target_rect.center
+
+        if progress < 0.78:
+            glow_alpha = int(70 * (1.0 - progress / 0.78))
+            glow = pygame.Surface((width + 18, height + 18), pygame.SRCALPHA)
+            pygame.draw.rect(
+                glow, (46, 204, 113, glow_alpha), glow.get_rect(), border_radius=12,
+            )
+            surface.blit(glow, glow.get_rect(center=animated_rect.center))
+            face = animated_rect.move(0, 2 if progress < 0.18 else 0)
+            pygame.draw.rect(surface, (20, 120, 40), face, border_radius=12)
+            label = font.render("<  >", True, (255, 255, 255))
+            label.set_alpha(max(0, int(255 * (1.0 - progress / 0.78))))
+            surface.blit(label, label.get_rect(center=face.center))
+        else:
+            pixel = max(1, int(8 * (1.0 - progress) / 0.22))
+            for x in range(animated_rect.left, animated_rect.right, pixel):
+                for y in range(animated_rect.top, animated_rect.bottom, pixel):
+                    pygame.draw.rect(
+                        surface, (20, 120, 40),
+                        (x, y, min(pixel, animated_rect.right - x),
+                         min(pixel, animated_rect.bottom - y)),
+                    )
+        return animated_rect
+
+    def draw_evt003_primary_button(self, surface):
+        """Reuse the exact normal gameplay target button; this is not an event button."""
+        self.screen = surface
+        self.recalculate_layout()
+        return self._draw_primary_target_button(surface, event_mode=True)
+
+    def draw_evt003_punishment_button(self, surface, progress):
+        """Animate the same gameplay button at the same event-only position."""
+        self.screen = surface
+        self.recalculate_layout()
+        return self._draw_primary_target_button(
+            surface, event_mode=True, animation_progress=progress,
+        )
+
+    def draw_evt003_countdown(self, surface, remaining_seconds, duration_seconds=30.0):
+        """Render the waiting countdown using the game's own timer typography and bar style."""
+        width, height = surface.get_size()
+        remaining = max(0, int(remaining_seconds))
+        minutes, seconds = divmod(remaining, 60)
+        label = f"ОСТАЛОСЬ: {minutes:02d}:{seconds:02d}"
+        font = self.font_ui or self.font_sub or pygame.font.SysFont("Arial", 14, bold=True)
+        label_surface = font.render(label, True, (255, 255, 255))
+        bar_width = label_surface.get_width() + 24
+        bar_height = 36
+        bar = pygame.Rect(0, 0, bar_width, bar_height)
+        bar.center = (width // 2, int(height * 0.79))
+        pygame.draw.rect(surface, (46, 204, 113), bar, border_radius=6)
+        surface.blit(label_surface, label_surface.get_rect(center=bar.center))
+        return bar
+
+    def draw_event_background(self, surface, wallpaper_index=0, chase_mode=False):
+        """Draw the gameplay backdrop/palette and fill the complete active render surface."""
+        wallpapers = ((0, 0, 0), (0, 0, 128), (20, 50, 25), (55, 15, 45))
+        color = (8, 12, 22) if chase_mode else wallpapers[int(wallpaper_index) % len(wallpapers)]
+        surface.fill(color)
+        if self.backdrop and not chase_mode:
+            image = getattr(self.backdrop, "image", None)
+            if image is None:
+                self.backdrop.draw(surface)
+            elif image.get_size() == surface.get_size():
+                surface.blit(image, (0, 0))
+            else:
+                cache_key = (id(image), surface.get_size())
+                if self._event_background_cache_key != cache_key:
+                    self._event_background_cache = pygame.transform.scale(image, surface.get_size())
+                    self._event_background_cache_key = cache_key
+                surface.blit(self._event_background_cache, (0, 0))
+
+    def draw(self, surface, logic, lang_code, seconds_left, current_phrase, blink_visible, glitch_intensity, typed_phrase, total_clicks, wallpaper_index, easter_egg_phrase=None, effects_enabled=True, debug_mode=False):
+        # EVT_004: never allow geometry from a previous frame to survive.
+        self.evt004_rect_target = None
+        self.evt004_rect_back = None
+        self.evt004_rect_wallpaper = None
+        self.evt004_rect_phrase = None
+        self.evt004_rect_free_wash = None
+        self.evt004_rect_instant_wash = None
+        if getattr(logic, "word_shock_active", False):
+            self._draw_word_shock(surface, logic)
+            return
+        if self.horror_active:
+            keep = self.update_typewriter(total_clicks)
+            if not keep:
+                self.set_phrase(self.saved_meme, glitch_intensity, total_clicks, is_horror=False)
+                current_phrase = self.saved_meme
+                if hasattr(logic, "horror_cooldown"):
+                    logic.horror_cooldown = True
+
+        self.update_animations()
+        
+        layer_desync_anomaly = False
+        if logic.is_horror_phase() and random.random() < (glitch_intensity * 2.5):
+            layer_desync_anomaly = True
+
+        shadow_offset_x = 0
+        if total_clicks >= 300 and random.random() < 0.015:
+            shadow_offset_x = random.choice([-8, -4, 4, 8])
+
+        w, h = surface.get_size()
+        self.screen = surface
+        self.recalculate_layout()
+        text_data = TRANSLATIONS.get(lang_code, TRANSLATIONS["RU"])
+
+        chase_mode = bool(getattr(logic, "chase_planet_active", False))
+        self.draw_event_background(surface, wallpaper_index, chase_mode)
+        # EVT_004: capture clean backdrop before drawing interface elements.
+        if self._evt004_capture_background:
+            self._evt004_background_snapshot = surface.copy()
+        else:
+            self._evt004_background_snapshot = None
+
+        if chase_mode:
+            _caught = getattr(logic, "chase_planets_caught_round", 0)
+            _target = getattr(logic, "chase_planets_target_count", 0)
+            _total = getattr(logic, "chase_planets_caught_total", 0)
+
+            if str(lang_code).upper() == "RU":
+                _counter_text = (
+                    f"ПЛАНЕТЫ: {_caught}/{_target}   ВСЕГО ПОЙМАНО: {_total}"
+                )
+            else:
+                _counter_text = (
+                    f"PLANETS: {_caught}/{_target}   CAUGHT TOTAL: {_total}"
+                )
+
+            _counter_surface = self.font_main.render(
+                _counter_text, True, (235, 240, 255)
+            )
+            surface.blit(
+                _counter_surface,
+                _counter_surface.get_rect(center=(w // 2, int(h * 0.12))),
+            )
+
+        elif logic.clicks_in_cycle < 10 and not getattr(logic, "minigame_active", False):
+            hint_str = text_data["hint"].replace("(", "").replace(")", "").strip().upper()
+            glitched_hint = self.apply_glitch(hint_str, glitch_intensity)
+            hint_surf = self.font_main.render(glitched_hint, True, (255, 255, 255))
+            hint_rect = hint_surf.get_rect(center=(w // 2 + shadow_offset_x, int(h * 0.12)))
+            surface.blit(hint_surf, hint_rect)
+
+            score_text = f"{text_data['score_label'].upper()}: {logic.score}"
+            glitched_score = self.apply_glitch(score_text, glitch_intensity)
+            score_surf = self.font_main.render(glitched_score, True, (255, 165, 0))
+            if self.label_scale != 1.0:
+                sw = int(score_surf.get_width() * self.label_scale)
+                sh = int(score_surf.get_height() * self.label_scale)
+                scaled_score = pygame.transform.scale(score_surf, (sw, sh))
+                score_rect = scaled_score.get_rect(center=(w // 2 + shadow_offset_x, int(h * 0.18)))
+                surface.blit(scaled_score, score_rect)
+            else:
+                score_rect = score_surf.get_rect(center=(w // 2 + shadow_offset_x, int(h * 0.18)))
+                surface.blit(score_surf, score_rect)
+
+            clicks_text = f"{text_data['clicks_label'].upper()}: {logic.clicks_in_cycle}/10"
+            glitched_clicks = self.apply_glitch(clicks_text, glitch_intensity)
+            clicks_surf = self.font_sub.render(glitched_clicks, True, (135, 206, 250))
+            clicks_rect = clicks_surf.get_rect(center=(w // 2 + shadow_offset_x, int(h * 0.24)))
+            surface.blit(clicks_surf, clicks_rect)
+
+            self._draw_primary_target_button(
+                surface, logic=logic, glitch_intensity=glitch_intensity,
+                shadow_offset_x=shadow_offset_x,
+            )
+        elif getattr(logic, "minigame_active", False):
+            is_horror = logic.is_horror_phase()
+            if is_horror:
+                mg_title = "ОБНАРУЖЕН БИТЫЙ СЕКТОР. СИНХРОНИЗАЦИЯ"
+                title_color = (214, 48, 49)
+                text_to_render = self.apply_glitch(mg_title, glitch_intensity)
+            else:
+                mg_title = "ТРЕБУЕТСЯ НАСТРОЙКА ТРЭКИНГА ПЛЕНКИ"
+                title_color = (135, 206, 250)
+                text_to_render = mg_title
+
+            mg_surf = self.font_sub.render(text_to_render, True, title_color)
+            surface.blit(mg_surf, (w // 2 - mg_surf.get_width() // 2, int(h * 0.20)))
+            
+            sectors_pool = getattr(logic, "sectors", ["0x0F", "0x3B", "0x7A", "0xED"])
+            target_idx = getattr(logic, "target_sector_index", 0)
+            
+            for idx, rect in enumerate(self.rect_sectors):
+                is_target = (idx == target_idx)
+                if is_target:
+                    box_color = (180, 20, 30) if is_horror else (0, 0, 128)
+                else:
+                    box_color = (40, 40, 50) if is_horror else (50, 50, 60)
+                    
+                pygame.draw.rect(surface, box_color, rect, border_radius=6)
+                pygame.draw.rect(surface, (100, 100, 120), rect, width=2, border_radius=6)
+                
+                sec_text = sectors_pool[idx % len(sectors_pool)]
+                sec_to_render = self.apply_glitch(sec_text, glitch_intensity) if is_horror else sec_text
+                sec_surf = self.font_ui.render(sec_to_render, True, (255, 255, 255))
+                surface.blit(sec_surf, sec_surf.get_rect(center=rect.center))
+        else:
+            if not logic.timer_active or layer_desync_anomaly:
+                has_money = logic.score >= logic.upgrade_cost
+                if isinstance(text_data["wash_info"], list):
+                    wash_info_lines = text_data["wash_info"]
+                else:
+                    wash_info_lines = text_data["wash_info"].upper().split("\n")
+                line1 = wash_info_lines[0] if len(wash_info_lines) > 0 else ""
+                
+                if not has_money:
+                    if blink_visible:
+                        err_text = text_data["btn_no_money"].upper()
+                        err_surf = self.font_sub.render(self.apply_glitch(err_text, glitch_intensity), True, (214, 48, 49))
+                        surface.blit(err_surf, (w // 2 - err_surf.get_width() // 2, int(h * 0.15)))
+                    line2 = text_data["forced_wash"].upper()
+                else:
+                    ok_text = text_data["ok_money_label"].upper()
+                    ok_surf = self.font_sub.render(self.apply_glitch(ok_text, glitch_intensity), True, (46, 204, 113))
+                    surface.blit(ok_surf, (w // 2 - ok_surf.get_width() // 2, int(h * 0.15)))
+                    line2 = wash_info_lines[1] if len(wash_info_lines) > 1 else ""
+                    
+                info1 = self.font_sub.render(self.apply_glitch(str(line1).upper(), glitch_intensity), True, (255, 255, 255))
+                info2 = self.font_sub.render(self.apply_glitch(str(line2).upper(), glitch_intensity), True, (255, 255, 255))
+                surface.blit(info1, (w // 2 - info1.get_width() // 2, int(h * 0.23)))
+                surface.blit(info2, (w // 2 - info2.get_width() // 2, int(h * 0.27)))
+
+                if not logic.timer_active:
+                    free_text = f"    {text_data['btn_free_wash'].upper()}    "
+                    free_surf = self.font_sub.render(self.apply_glitch(free_text, glitch_intensity), True, (255, 255, 255))
+                    fw_w = free_surf.get_width() + 30
+                    self.rect_free_wash_btn = pygame.Rect(w // 2 - fw_w // 2, int(h * 0.62), fw_w, 44)
+                    pygame.draw.rect(surface, (70, 70, 70), self.rect_free_wash_btn, border_radius=6)
+                    self.evt004_rect_free_wash = self.rect_free_wash_btn.copy()
+                    surface.blit(free_surf, free_surf.get_rect(center=self.rect_free_wash_btn.center))
+
+                    if has_money:
+                        wash_text = f"    {text_data['btn_wash'].upper()} ({text_data['price_label'].upper()}: {logic.upgrade_cost})    "
+                        wash_surf = self.font_sub.render(self.apply_glitch(wash_text, glitch_intensity), True, (255, 255, 255))
+                        iw_w = wash_surf.get_width() + 30
+                        iw_h = 44
+                        self.rect_instant_wash = pygame.Rect(w // 2 - iw_w // 2, int(h * 0.55), iw_w, iw_h)
+                        pygame.draw.rect(surface, (20, 120, 40), self.rect_instant_wash, border_radius=6)
+                        self.evt004_rect_instant_wash = self.rect_instant_wash.copy()
+                        surface.blit(wash_surf, wash_surf.get_rect(center=self.rect_instant_wash.center))
+                    else:
+                        self.rect_instant_wash = pygame.Rect(0, 0, 0, 0)
+                else:
+                    self.rect_free_wash_btn = pygame.Rect(0, 0, 0, 0)
+                    self.rect_instant_wash = pygame.Rect(0, 0, 0, 0)
+            else:
+                self.rect_instant_wash = pygame.Rect(0, 0, 0, 0)
+                self.rect_free_wash_btn = pygame.Rect(0, 0, 0, 0)
+
+            if self.horror_active and self.display_phrase:
+                display_text = self.apply_glitch(self.display_phrase, glitch_intensity)
+            elif easter_egg_phrase:
+                display_text = self.apply_glitch(easter_egg_phrase, glitch_intensity)
+            else:
+                display_text = self.apply_glitch(current_phrase, glitch_intensity)
+
+            phrase_surf = self.font_ui.render(display_text, True, (255, 255, 255))
+            p_w = phrase_surf.get_width() + 40
+            p_h = 44
+            self.rect_phrase_btn = pygame.Rect(w // 2 - p_w // 2, int(h * 0.35), p_w, p_h)
+            self.evt004_rect_phrase = self.rect_phrase_btn.copy()
+            pygame.draw.rect(surface, (40, 40, 40), self.rect_phrase_btn, border_radius=6)
+            pygame.draw.rect(surface, (80, 80, 80), self.rect_phrase_btn, width=2, border_radius=6)
+            surface.blit(phrase_surf, phrase_surf.get_rect(center=self.rect_phrase_btn.center))
+
+            if logic.timer_active:
+                timer_pattern = text_data["timer_pattern"] if isinstance(text_data["timer_pattern"], str) else text_data["timer_pattern"]
+                timer_str = f"    {timer_pattern.upper().replace('{SECONDS}', str(seconds_left))}    "
+                timer_surf = self.font_ui.render(self.apply_glitch(timer_str, glitch_intensity), True, (255, 255, 255))
+                pbar_w = timer_surf.get_width() + 20
+                pbar_h = 36
+                pbar_x = w // 2 - pbar_w // 2
+                pbar_y = int(h * 0.45)
+                pygame.draw.rect(surface, (46, 204, 113), (pbar_x, pbar_y, pbar_w, pbar_h), border_radius=6)
+                surface.blit(timer_surf, timer_surf.get_rect(center=(pbar_x + pbar_w // 2, pbar_y + pbar_h // 2)))
+
+
+        chase_planets = getattr(logic, "chase_planets", [])
+
+        if chase_planets:
+            for _planet in chase_planets:
+                sprite_rect = self.sprite_img.get_rect(
+                    topleft=(int(_planet["x"]), int(_planet["y"]))
+                )
+                surface.blit(self.sprite_img, sprite_rect)
+
+                if debug_mode:
+                    pygame.draw.rect(surface, (255, 0, 0), sprite_rect, 2)
+
+        elif getattr(logic, "sprite_active", False):
+            sprite_rect = self.sprite_img.get_rect(
+                topleft=(int(logic.sprite_x), int(logic.sprite_y))
+            )
+            surface.blit(self.sprite_img, sprite_rect)
+
+            if debug_mode:
+                pygame.draw.rect(surface, (255, 0, 0), sprite_rect, 2)
+
+        pygame.draw.rect(surface, (40, 40, 40), self.rect_back, border_radius=6)
+        self.evt004_rect_back = self.rect_back.copy()
+        back_txt = self.font_sys_close.render("<-", True, (255, 255, 255))
+        surface.blit(back_txt, back_txt.get_rect(center=self.rect_back.center))
+
+        if not chase_mode:
+            wallpaper_icon = "🖼️"
+            if logic.get_phase_index() >= 3 and random.random() < 0.05:
+                wallpaper_icon = random.choice(["💀", "❌", "☣️", "👁️"])
+            icon_surf = self.font_icon.render(
+                wallpaper_icon, True, (255, 255, 255)
+            )
+            surface.blit(icon_surf, self.rect_wallpaper)
+            self.evt004_rect_wallpaper = self.rect_wallpaper.copy()
+
+        # Иконка архива скрыта во время Chase Planet.
+        if getattr(logic, "lore_icon_visible", False) and not chase_mode:
+            lore_icon_size = 40
+            self.rect_lore_icon = pygame.Rect(w - 110, h - 60, lore_icon_size, lore_icon_size)
+            lore_icon_surf = self.font_icon.render("📁", True, (255, 255, 255))
+            surface.blit(lore_icon_surf, self.rect_lore_icon.topleft)
+        else:
+            self.rect_lore_icon = None
+
+        if not chase_mode and hasattr(logic, "red_bracket_text") and logic.red_bracket_text:
+            bracket_text = logic.red_bracket_text
+            bracket_surf = self.font_ui.render(f"[[ {bracket_text} ]]", True, (255, 0, 0))
+            bracket_rect = bracket_surf.get_rect(center=(w // 2, int(h * 0.08)))
+            surface.blit(bracket_surf, bracket_rect)
+
+        if not chase_mode:
+            self._draw_hidden_code_ui(surface, logic, debug_mode=debug_mode)
+            self._draw_lore_window(surface, logic, debug_mode=debug_mode)
+        
+        # Отрисовка просмотрщика текста (если открыт)
+        if not chase_mode and getattr(logic, "lore_text_viewer_open", False):
+            self._draw_text_viewer(surface, logic)
+        
+        # Отрисовка просмотрщика изображений (если открыт)
+        if not chase_mode and getattr(logic, "lore_image_viewer_open", False):
+            self._draw_image_viewer(surface, logic)
+
+        if debug_mode:
+            pygame.draw.rect(surface, (0, 255, 0), self.rect_back, 2)
+            pygame.draw.rect(surface, (0, 255, 0), self.rect_wallpaper, 2)
+            if logic.clicks_in_cycle < 10 and not getattr(logic, "minigame_active", False):
+                pygame.draw.rect(surface, (0, 255, 255), self.rect_target, 2)
+            elif getattr(logic, "minigame_active", False):
+                for rect in self.rect_sectors:
+                    pygame.draw.rect(surface, (255, 0, 255), rect, 2)
+            else:
+                if not logic.timer_active:
+                    pygame.draw.rect(surface, (0, 255, 255), self.rect_free_wash_btn, 2)
+                    if logic.score >= logic.upgrade_cost:
+                        pygame.draw.rect(surface, (0, 255, 255), self.rect_instant_wash, 2)
+        
+        # Draw click phrase if active
+        if not chase_mode:
+            self._draw_click_phrase(surface, logic)
+        self._draw_roach_attack(surface, logic)
+
+    def _draw_word_shock(self, surface, logic):
+        """Изолированный экран EVT_002; используются шрифты основного игрового интерфейса."""
+        surface.fill((2, 3, 9))
+        w, h = surface.get_size()
+        now = time.monotonic()
+        elapsed = max(0.0, now - logic.word_shock_started_at)
+        title = "НАЙДИ РАБОТУ"
+        visible_count = min(len(title), max(1, int(elapsed / 0.12) + 1))
+        visible_title = title[:visible_count]
+        title_surf = self.word_shock_title_font.render(visible_title, True, (242, 246, 255))
+        if logic.word_shock_modal_visible:
+            move_progress = min(1.0, max(0.0, (now - logic.word_shock_modal_opened_at) / 0.55))
+        else:
+            move_progress = 0.0
+        title_y = int(h * (0.50 - 0.24 * move_progress))
+        title_rect = title_surf.get_rect(center=(w // 2, title_y))
+        # Тонкие цветные сдвиги создают CRT/glitch-эффект, не меняя сам шрифт игры.
+        ghost_cyan = self.word_shock_title_font.render(visible_title, True, (38, 194, 235))
+        ghost_red = self.word_shock_title_font.render(visible_title, True, (188, 54, 112))
+        ghost_cyan.set_alpha(72)
+        ghost_red.set_alpha(65)
+        surface.blit(ghost_cyan, title_rect.move(-3, 0))
+        surface.blit(ghost_red, title_rect.move(3, 1))
+        surface.blit(title_surf, title_rect)
+
+        # CRT scanlines stay subtle and never resemble a fake transparency pattern.
+        for y in range(0, h, 5):
+            pygame.draw.line(surface, (7, 11, 19), (0, y), (w, y), 1)
+
+        self.word_shock_confirm_rect = None
+        if not logic.word_shock_modal_visible:
+            return
+
+        panel_w = min(900, w - 48)
+        panel_h = 300
+        panel_x = (w - panel_w) // 2
+        panel_y = min(max(24, int(h * 0.51)), max(24, h - panel_h - 24))
+        panel = pygame.Rect(panel_x, panel_y, panel_w, panel_h)
+        pygame.draw.rect(surface, (5, 7, 15), panel)
+        pygame.draw.rect(surface, (117, 72, 205), panel.move(3, 0), 2)
+        pygame.draw.rect(surface, (52, 178, 224), panel, 2)
+        pygame.draw.line(surface, (105, 74, 190), (panel.x + 18, panel.y + 8), (panel.right - 18, panel.y + 8), 1)
+
+        message_lines = (
+            "Чтобы продолжить, подтвердите",
+            "своё намерение найти работу.",
+        )
+        message_y = panel.y + 28
+        for index, line in enumerate(message_lines):
+            rendered = self.word_shock_modal_font.render(line, True, (238, 240, 255))
+            surface.blit(rendered, rendered.get_rect(center=(w // 2, message_y + index * 28)))
+
+        label = self.word_shock_modal_font.render("Введите ответ:", True, (111, 198, 238))
+        surface.blit(label, (panel.x + 42, panel.y + 105))
+
+        input_rect = pygame.Rect(panel.x + 42, panel.y + 137, panel.width - 84, 48)
+        pygame.draw.rect(surface, (2, 4, 12), input_rect)
+        pygame.draw.rect(surface, (88, 103, 157), input_rect, 2)
+        input_text = logic.word_shock_input
+        input_surf = self.word_shock_input_font.render(input_text, True, (245, 245, 255))
+        surface.blit(input_surf, (input_rect.x + 12, input_rect.y + (input_rect.height - input_surf.get_height()) // 2))
+        if (pygame.time.get_ticks() // 500) % 2 == 0:
+            cursor_x = min(input_rect.right - 12, input_rect.x + 12 + input_surf.get_width() + 2)
+            pygame.draw.line(surface, (210, 226, 255), (cursor_x, input_rect.y + 10), (cursor_x, input_rect.bottom - 10), 2)
+
+        button_w, button_h = 250, 42
+        button = pygame.Rect(w // 2 - button_w // 2, panel.y + 204, button_w, button_h)
+        pygame.draw.rect(surface, (35, 29, 83), button)
+        pygame.draw.rect(surface, (107, 97, 220), button, 2)
+        button_surf = self.word_shock_small_font.render("ПОДТВЕРДИТЬ", True, (225, 225, 255))
+        surface.blit(button_surf, button_surf.get_rect(center=button.center))
+        self.word_shock_confirm_rect = button
+
+        if logic.word_shock_feedback:
+            feedback = self.word_shock_small_font.render(logic.word_shock_feedback, True, (255, 103, 116))
+            surface.blit(feedback, feedback.get_rect(center=(w // 2, panel.y + 270)))
+
+    def _load_roach_assets(self):
+        """Загрузить прозрачные анимационные полосы EVT_001 из assets/games_sprites."""
+        self.roach_frames = {"right": [], "left": [], "up": [], "down": []}
+        self.roach_squashed_image = None
+        self.roach_impact_image = None
+        self.roach_announcement_title_font = pygame.font.SysFont("Arial", 30, bold=True)
+        self.roach_announcement_subtitle_font = pygame.font.SysFont("Arial", 17, bold=True)
+        asset_dir = Path(__file__).resolve().parent / "assets" / "games_sprites" / "roach_attack"
+        strip_specs = {
+            "right": ("roach_run_right.png", 7),
+            "left": ("roach_run_left.png", 7),
+            "up": ("roach_run_up.png", 8),
+            "down": ("roach_run_down.png", 8),
+        }
+        for direction, (filename, frame_count) in strip_specs.items():
+            path = asset_dir / filename
+            if not path.is_file():
+                _LOGGER.warning("Полоса спрайтов EVT_001 не найдена: %s", path)
+                continue
+            try:
+                strip = pygame.image.load(str(path)).convert_alpha()
+                if strip.get_width() % frame_count:
+                    raise ValueError(f"{filename}: width is not divisible by {frame_count}")
+                frame_w = strip.get_width() // frame_count
+                frame_h = strip.get_height()
+                for frame_index in range(frame_count):
+                    frame_rect = pygame.Rect(frame_index * frame_w, 0, frame_w, frame_h)
+                    frame = strip.subsurface(frame_rect).copy()
+                    self.roach_frames[direction].append(pygame.transform.scale(frame, (32, 25)))
+            except (pygame.error, ValueError):
+                _LOGGER.exception("Не удалось загрузить полосу спрайтов EVT_001: %s", filename)
+                self.roach_frames[direction] = []
+
+        for filename, attr, size in (
+            ("roach_squashed.png", "roach_squashed_image", (40, 28)),
+            ("roach_impact.png", "roach_impact_image", (64, 54)),
+        ):
+            path = asset_dir / filename
+            if not path.is_file():
+                continue
+            try:
+                image = pygame.image.load(str(path)).convert_alpha()
+                setattr(self, attr, pygame.transform.scale(image, size))
+            except pygame.error:
+                _LOGGER.exception("Не удалось загрузить спрайт EVT_001: %s", filename)
+
+        if not any(self.roach_frames.values()):
+            _LOGGER.warning("Анимационные кадры EVT_001 не загружены; тараканы не будут видны без ассетов.")
+
+    def trigger_roach_squash(self, center):
+        self.roach_squash_effects.append({"center": tuple(center), "started": pygame.time.get_ticks()})
+
+    def _draw_roach_announcement(self, surface, logic, tick):
+        started = int(getattr(logic, "roach_announcement_started_at", 0))
+        if not started:
+            return
+        elapsed = tick - started
+        duration = 2350
+        if elapsed < 0 or elapsed >= duration:
+            return
+
+        w, h = surface.get_size()
+        if elapsed < 300:
+            flash_alpha = int(92 * (1.0 - elapsed / 300.0))
+            flash = pygame.Surface((w, h), pygame.SRCALPHA)
+            flash.fill((220, 34, 28, flash_alpha))
+            surface.blit(flash, (0, 0))
+
+        progress = min(1.0, elapsed / 220.0, (duration - elapsed) / 260.0)
+        progress = max(0.0, progress)
+        panel_w = min(w - 36, 820)
+        panel_h = 104
+        slide = int((1.0 - min(1.0, elapsed / 180.0)) * 32)
+        panel = pygame.Rect((w - panel_w) // 2, int(h * 0.315) - slide, panel_w, panel_h)
+        layer = pygame.Surface((panel_w, panel_h), pygame.SRCALPHA)
+        alpha = int(238 * progress)
+        pygame.draw.rect(layer, (17, 8, 10, alpha), layer.get_rect(), border_radius=7)
+        pulse = 190 + int(65 * (0.5 + 0.5 * math.sin(tick * 0.025)))
+        pygame.draw.rect(layer, (pulse, 46, 30, alpha), layer.get_rect(), width=4, border_radius=7)
+        title = "ВНИМАНИЕ! ТАРАКАНЫ!"
+        subtitle = "ОНИ НЕ ПЛАТЯТ ЗА АРЕНДУ."
+        title_surf = self.roach_announcement_title_font.render(title, True, (255, 196, 83))
+        subtitle_surf = self.roach_announcement_subtitle_font.render(subtitle, True, (236, 222, 210))
+        title_surf.set_alpha(alpha)
+        subtitle_surf.set_alpha(alpha)
+        layer.blit(title_surf, title_surf.get_rect(center=(panel_w // 2, 36)))
+        layer.blit(subtitle_surf, subtitle_surf.get_rect(center=(panel_w // 2, 76)))
+        surface.blit(layer, panel.topleft)
+
+    def _draw_roach_attack(self, surface, logic):
+        """Отрисовать анимированных тараканов, hitbox и комедийные эффекты EVT_001."""
+        self.roach_hitboxes = []
+        self.roach_hitbox_indices = []
+        tick = pygame.time.get_ticks()
+        blocked = (
+            not getattr(logic, "roach_attack_active", False)
+            or getattr(logic, "minigame_active", False)
+            or getattr(logic, "timer_active", False)
+            or getattr(logic, "sprite_active", False)
+            or getattr(logic, "chase_planet_active", False)
+            or getattr(logic, "fade_screen_active", False)
+            or getattr(logic, "clicks_in_cycle", 0) >= 10
+            or getattr(logic, "code_window_open", False)
+            or getattr(logic, "lore_window_open", False)
+            or getattr(logic, "lore_text_viewer_open", False)
+            or getattr(logic, "lore_image_viewer_open", False)
+        )
+
+        if not blocked:
+            for index, roach in enumerate(logic.roach_entities):
+                if roach.get("spawn_delay", 0.0) > 0.0 or not roach.get("visible", True):
+                    continue
+                x, y = int(roach["x"]), int(roach["y"])
+                direction = roach.get("direction", "right")
+                frames = self.roach_frames.get(direction) or self.roach_frames.get("right") or []
+                if frames:
+                    frame_ms = 85 if direction in ("left", "right") else 90
+                    frame_index = ((tick + int(roach.get("anim_offset", 0))) // frame_ms) % len(frames)
+                    sprite = frames[frame_index]
+                    surface.blit(sprite, (x, y))
+                elif self.roach_squashed_image:
+                    surface.blit(self.roach_squashed_image, (x, y))
+                self.roach_hitboxes.append(pygame.Rect(x - 3, y - 2, 38, 29))
+                self.roach_hitbox_indices.append(index)
+
+        alive_effects = []
+        for effect in self.roach_squash_effects:
+            age = tick - effect["started"]
+            if age >= 420:
+                continue
+            alive_effects.append(effect)
+            fade_alpha = max(0, int(255 * (1.0 - age / 420.0)))
+            if self.roach_squashed_image:
+                squashed = self.roach_squashed_image.copy()
+                squashed.set_alpha(fade_alpha)
+                surface.blit(squashed, squashed.get_rect(center=effect["center"]))
+            if self.roach_impact_image:
+                impact = self.roach_impact_image.copy()
+                impact.set_alpha(fade_alpha)
+                surface.blit(impact, impact.get_rect(center=effect["center"]))
+        self.roach_squash_effects = alive_effects
+
+        if getattr(logic, "roach_attack_active", False):
+            self._draw_roach_announcement(surface, logic, tick)
+
+    def _draw_click_phrase(self, surface, logic):
+        """Draw click phrase with animation and glitch effect."""
+        phrase = getattr(logic, 'current_click_phrase', '')
+        if not phrase:
+            return
+        
+        now = pygame.time.get_ticks()
+        timer = getattr(logic, 'click_phrase_timer', 0)
+        if now > timer:
+            logic.current_click_phrase = ''
+            return
+        
+        # Animation parameters
+        alpha = getattr(logic, 'click_phrase_alpha', 0)
+        scale = getattr(logic, 'click_phrase_scale', 0.0)
+        y_offset = getattr(logic, 'click_phrase_y_offset', 0)
+        pos = getattr(logic, 'click_phrase_pos', [0, 0])
+        
+        # Update animation
+        if now < timer - 300:  # Fade in phase (first 1.7s)
+            alpha = min(255, alpha + 15)
+            scale = min(1.0, scale + 0.08)
+            y_offset = max(-10, y_offset - 1)
+        else:  # Fade out phase (last 0.3s)
+            remaining = timer - now
+            if remaining < 300:
+                alpha = int(255 * remaining / 300)
+                scale = 1.0
+        
+        logic.click_phrase_alpha = alpha
+        logic.click_phrase_scale = scale
+        logic.click_phrase_y_offset = y_offset
+        
+        if alpha <= 0:
+            return
+        
+        # Get glitch intensity from current phase
+        glitch_intensity = logic.get_glitch_intensity()
+        
+        # Apply glitch to phrase text (same system as other UI elements)
+        glitched_phrase = self.apply_glitch(phrase, glitch_intensity)
+        
+        # Render text with interface font (same as UI elements)
+        font = self.font_ui  # Use interface font instead of Arial
+        text_surf = font.render(glitched_phrase, True, (255, 255, 255))
+        
+        # Apply scale
+        if scale != 1.0:
+            new_w = int(text_surf.get_width() * scale)
+            new_h = int(text_surf.get_height() * scale)
+            text_surf = pygame.transform.scale(text_surf, (new_w, new_h))
+        
+        # Apply alpha
+        text_surf.set_alpha(alpha)
+        
+        # Position: click point + 40px up offset + animation offset
+        x = pos[0] - text_surf.get_width() // 2
+        y = pos[1] - 40 + y_offset - text_surf.get_height() // 2
+        
+        # Clamp to screen bounds
+        w, h = surface.get_size()
+        x = max(0, min(w - text_surf.get_width(), x))
+        y = max(0, min(h - text_surf.get_height(), y))
+        
+        # Draw shadow
+        shadow_surf = font.render(glitched_phrase, True, (0, 0, 0))
+        if scale != 1.0:
+            shadow_surf = pygame.transform.scale(shadow_surf, (int(shadow_surf.get_width() * scale), int(shadow_surf.get_height() * scale)))
+        shadow_surf.set_alpha(alpha)
+        surface.blit(shadow_surf, (x + 2, y + 2))
+        
+        # Draw text
+        surface.blit(text_surf, (x, y))
