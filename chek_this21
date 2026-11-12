@@ -1,0 +1,2276 @@
+PALCHIK EVENT COLLECTION — VISUAL AUDIT
+PROJECT: C:\Users\PC\Desktop\project
+
+FILE: main.py
+SHA256: CE4B459E67D0D831AD1EE9F85765E46BC8B71AA87A15F3D339F972D2D2C072D3
+FILE: events/secret_access.py
+SHA256: FC21069751B7339897B69710AD2886390F11805CD6F35F012698A0348FF0D2EC
+FILE: game_scene.py
+SHA256: 3C8BDD9386CDB67680F39CFF0A2F32C7B89E742DB0C59F0A2436668060461B2B
+
+==============================================================================
+MAIN.PY — COLLECTION-RELATED METHODS
+==============================================================================
+
+--- __init__ (lines 324-542) ---
+    def __init__(self):
+        info = pygame.display.Info()
+        self.screen = pygame.display.set_mode(
+            (info.current_w, info.current_h),
+            pygame.FULLSCREEN | pygame.DOUBLEBUF | pygame.OPENGL
+        )
+        print("[DBG] window created", self.screen.get_size())
+        pygame.display.set_caption("PALCHIK")
+        self.clock = pygame.time.Clock()
+        self.running = True
+        self.app_logger, self.log_file_path = configure_app_logging(Path(__file__).resolve().parent)
+        install_uncaught_exception_hook(self.app_logger)
+        # Event catalog is the single metadata source; legacy controllers remain active
+        # until each event is migrated to EventManager in a separate verified step.
+        self.event_catalog = load_default_catalog()
+        self.event_manager = EventManager(self.event_catalog)
+        self.event_effects = EffectRegistry()
+        self.event_lifecycle = LegacyEventLifecycle(self.event_manager)
+
+        saved_data = SaveManager.load_game_data()
+        self.current_lang = saved_data["lang"]
+        self.player_name = saved_data.get("player_name", "")
+        collection_state = SaveManager.load_event_collection_state()
+        self.event_collection_unlocked = collection_state["unlocked"]
+        self.event_collection_progress = normalize_event_collection_progress(collection_state["progress"])
+        self.event_collection_open = False
+        self.event_collection_opened_at = 0.0
+        self.event_collection_closing = False
+        self.event_collection_closing_started_at = 0.0
+        self.event_collection_icon_rect = None
+        self.event_collection_window_rect = None
+        self.event_collection_close_rect = None
+        self.secret_prompt_session = SecretPromptSession()
+        self.secret_input_open = False
+        self.secret_input_closing = False
+        self.secret_input_closing_started_at = 0.0
+        self.secret_input_value = ""
+        self.secret_input_started_at = 0.0
+        self.secret_input_last_digit_at = 0.0
+        self.secret_input_error_until = 0.0
+        self.secret_input_rect = None
+
+        self.audio_box = AudioController()
+        self._roach_scuttle_playing = False
+        self.settings_box = SettingsController()
+        self.settings_box.audio_system = self.audio_box
+        self.settings_box.current_lang = self.current_lang
+
+        self.menu_cursor = CustomCursorManager()
+        self.settings_box.menu_cursor = self.menu_cursor
+
+        w, h = self.screen.get_size()
+        self.game_view = GameControllerPygame(w, h)
+
+        self.game_logic = GameLogic(
+            ui_update_callback=self._on_game_ui_update,
+            limit_reached_callback=self._on_limit_reached,
+            clean_finished_callback=self._on_clean_finished,
+            translations=TRANSLATIONS
+        )
+        # EVT_003 is registered and controlled by the existing PALCHIK EventManager.
+        self.evt003_runtime = EVT003Runtime(self.event_manager, self.game_logic)
+        self.evt003_presentation = EVT003Presentation(self.game_view)
+        self.evt003_state = None
+        self.evt003_instance_id = None
+        self.evt003_started_at = 0.0
+        self.evt003_gameover_started_at = 0.0
+        self.evt003_typewriter_count = 0
+        self.evt003_typewriter_interval = self.evt003_runtime.typewriter_interval
+
+        # EVT_004 Adventure Road runtime and presentation
+        self.evt004_runtime = None
+        self.evt004_presentation = None
+        self.evt004_instance_id = None
+        self.evt004_started_at = 0.0
+        self.evt004_audio_channel = None
+        self.evt004_audio_config = dict((self.event_catalog.configuration("EVT_004_ADVENTURE_ROAD") or {}).get("audio", {}))
+        self._evt004_wing_loop_active = False
+
+        self.evt003_typewriter = CharacterTypewriter(self.evt003_typewriter_interval)
+        # EVT_004 result screen: independent typewriter state.
+        self.evt004_result_state = None
+        self.evt004_result_presentation = None
+        self.evt004_result_text = ""
+        self.evt004_result_started_at = 0.0
+        self.evt004_result_interval = 0.075
+        self.evt004_result_typewriter = CharacterTypewriter(
+            self.evt004_result_interval
+        )
+        self.evt004_result_typewriter_count = 0
+        self.evt004_result_revealed = False
+        self.evt004_result_title = ""
+        self.evt004_result_dragon_surface = None
+        self.evt003_is_sandbox = False
+        self.evt003_dialog_payload = None
+        self.evt003_ok_rect = None
+        self.evt003_scheduled_phase = None
+        self.evt003_next_check_at = 0.0
+        self._evt003_schedule_phase(self.game_logic.get_phase())
+        # Load saved player name into game logic
+        if self.player_name:
+            self.game_logic.player_name = self.player_name
+            self.game_logic.name_verified = True
+
+        self.hint_alpha = 0.0
+        self.hint_visible = False
+        self.last_blink_time = pygame.time.get_ticks()
+        self.blink_interval = 600
+        self.start_delay = 5000
+        self.menu_start_time = pygame.time.get_ticks()
+
+        self.game_seconds_left = 30
+        self.game_current_phrase = "О КАК..."
+        self.game_blink_visible = True
+        self.game_last_blink_time = pygame.time.get_ticks()
+        self.typed_phrase = ""
+        self.final_phase_triggered = False
+        self.fake_crash_start = 0
+        self.crash_stage = 0
+
+        self.notification_text = ""
+        self.notification_timer = 0
+        self.menu_jitter_offset = 0
+
+        self.easter_egg_phrase = ""
+        self.easter_egg_timer = 0
+
+        self.effects_enabled = True
+        self.channel_switch_active = False
+        self.channel_switch_start_ms = 0
+        self.channel_switch_duration_ms = 1200
+        self.debug_mode = False
+        self.profiler = Profiler()
+
+        # Name entry system state
+        self.name_entry_active = False
+        self.name_input_scene = None
+
+        # Admin panel and new-game instruction sequence.
+        self.admin_panel_open = False
+        self.admin_panel_rect = None
+        self.admin_button_rects = {}
+        self.admin_tab_rects = {}
+        self.admin_panel_tab = "overview"
+        self.intro_slides_active = False
+        self.intro_slide_index = 0
+        self.intro_slide_title = ""
+        self.intro_slide_full_text = ""
+        self.intro_slide_display_text = ""
+        self.intro_slide_char_index = 0
+        self.intro_slide_typewriter_accum = 0.0
+        self.intro_slide_button_rect = None
+
+        # Subtitle system state (упрощено: idle -> typewriter -> waiting_click)
+        self.subtitle_full_text = ""
+        self.subtitle_displayed_text = ""
+        self.subtitle_alpha = 0
+        self.subtitle_state = "idle"  # idle | typewriter | waiting_click
+        self.subtitle_state_timer = 0.0
+        self.subtitle_typewriter_speed = 0.05  # seconds per character
+        self.subtitle_typewriter_timer = 0.0
+        self.subtitle_next_idle_timer = 0.0  # timer before next subtitle appears
+
+        # Code initialization sequence state
+        self.code_init_active = False
+        self.code_init_step = 0
+        self.code_init_text = ""
+        self.code_init_display = ""
+        self.code_init_word_index = 0
+        self.code_init_timer = 0.0
+        self.code_init_phase_timer = 0.0
+        self.code_init_word_count = 0
+        self.code_init_current_word = 0
+
+        self._load_fonts()
+        self._setup_menu_hitboxes()
+
+        self.video = None
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        video_path = os.path.join(base_dir, "assets", "video", "vhs_intro.mp4")
+        if CV2_AVAILABLE and os.path.exists(video_path):
+            try:
+                self.video = cv2.VideoCapture(video_path)
+                if self.video.isOpened():
+                    self.current_screen = "intro"
+                else:
+                    self.current_screen = "menu"
+                    self.audio_box.play_menu_music()
+            except Exception:
+                self.current_screen = "menu"
+                self.audio_box.play_menu_music()
+        else:
+            self.current_screen = "menu"
+            self.audio_box.play_menu_music()
+
+        self.ctx = moderngl.create_context()
+        self.program = self.ctx.program(
+            vertex_shader='''
+                #version 330
+                in vec2 in_vert;
+                in vec2 in_uv;
+                out vec2 v_text;
+                void main() {
+                    gl_Position = vec4(in_vert, 0.0, 1.0);
+                    v_text = vec2(in_uv.x, 1.0 - in_uv.y);
+                }
+            ''',
+            fragment_shader=FRAGMENT_SHADER
+        )
+        vertices = array.array('f', [
+            -1.0,  1.0, 0.0, 0.0,
+            -1.0, -1.0, 0.0, 1.0,
+             1.0,  1.0, 1.0, 0.0,
+             1.0, -1.0, 1.0, 1.0,
+        ])
+        self.quad_buffer = self.ctx.buffer(vertices.tobytes())
+        self.vao = self.ctx.vertex_array(self.program, [(self.quad_buffer, '2f 2f', 'in_vert', 'in_uv')])
+        self.screen_texture = self.ctx.texture(self.screen.get_size(), 4)
+        self.screen_texture.filter = (moderngl.LINEAR, moderngl.LINEAR) 
+
+--- _begin_game_session (lines 643-704) ---
+    def _begin_game_session(self, reset_progress=False):
+        """Start gameplay; clear saved progress only for an explicit new game."""
+        self.intro_slides_active = False
+        self.name_entry_active = False
+        self.name_input_scene = None
+        self.admin_panel_open = False
+        self.event_collection_open = False
+        self.event_collection_closing = False
+        self.event_collection_window_rect = None
+        self.event_collection_close_rect = None
+        self.secret_input_open = False
+        self.secret_input_closing = False
+        self.secret_input_value = ""
+        self.secret_input_error_until = 0.0
+        self.secret_prompt_session.begin_session()
+        self.channel_switch_active = False
+        if self.settings_box.is_open:
+            self.settings_box.close_dialog()
+        self.audio_box.stop_music()
+        self.current_screen = "game"
+        self.crash_stage = 0
+        self.fake_crash_start = 0
+        self.game_view.recalculate_layout()
+        self.game_view.target_scale = 1.0
+        self.game_view.label_scale = 1.0
+        self.game_view.target_animation_time = 0
+        self.game_view.label_animation_time = 0
+        self.game_view.lore_window_offset_x = 0
+        self.game_view.lore_window_offset_y = 0
+        self.game_view.lore_current_path = []
+        self.game_view.lore_selection_index = 0
+        self.game_view.lore_scroll_y = 0
+        self.game_view.lore_window_dragging = False
+        self.game_view.lore_scroll_dragging = False
+        self.game_view.code_window_dirty = True
+        self._stop_roach_audio()
+        if self.game_logic.roach_attack_active or self.event_lifecycle.is_tracked("EVT_001_ROACH_ATTACK"):
+            self._cancel_managed_roach_attack(reason="NEW_SESSION")
+        if self.game_logic.word_shock_active or self.event_lifecycle.is_tracked("EVT_002_WORD_SHOCK"):
+            self._cancel_managed_word_shock(reset=True, reason="NEW_SESSION")
+        self.game_logic.reset_session(reset_progress=reset_progress)
+        self.game_seconds_left = 30
+        self._last_notification_update = 0
+        self.notification_text = ""
+        self.notification_timer = 0
+        self.game_current_phrase = "О КАК..."
+        self.game_blink_visible = True
+        self.final_phase_triggered = False
+        self.typed_phrase = ""
+        self.easter_egg_phrase = ""
+        self.easter_egg_timer = 0
+        self.subtitle_state = "idle"
+        self.subtitle_full_text = ""
+        self.subtitle_displayed_text = ""
+        self.subtitle_alpha = 0
+        self.subtitle_state_timer = 0.0
+        self.subtitle_typewriter_timer = 0.0
+        self.subtitle_next_idle_timer = 0.0
+        self.code_init_active = False
+        self._set_meme_phrase()
+        self.audio_box.play_game_music()
+        self._evt003_begin_gameplay_entry()
+
+--- _submit_secret_input (lines 1962-2007) ---
+    def _submit_secret_input(self, candidate=None):
+        """Route 111111 to EVT_004 and keep 172314 as collection unlock only."""
+        attempt = self.secret_input_value if candidate is None else str(candidate)
+        # is_valid_numeric_code intentionally validates only the legacy collection PIN.
+        # EVT_004 has its own independent trigger code and must not replace it.
+        if attempt != "111111" and not is_valid_numeric_code(attempt):
+            self.secret_input_value = ""
+            self.secret_input_error_until = time.monotonic() + 0.75
+            self._show_notification("НЕВЕРНЫЙ КОД", duration=1800)
+            return False
+
+        if attempt == "111111":
+            if not self._start_evt004_from_secret_code():
+                self.secret_input_error_until = time.monotonic() + 0.75
+                return False
+            self.secret_prompt_session.mark_completed(reason="event")
+            self.secret_input_closing = True
+            self.secret_input_closing_started_at = time.monotonic()
+            self.secret_input_value = ""
+            self.event_collection_open = False
+            self.event_collection_closing = False
+            self.event_collection_window_rect = None
+            self.event_collection_close_rect = None
+            return True
+
+        try:
+            SaveManager.save_event_collection_state(
+                unlocked=True, progress=self.event_collection_progress,
+            )
+        except Exception:
+            self.app_logger.exception("Не удалось сохранить разблокировку коллекции событий")
+            self.secret_input_error_until = time.monotonic() + 0.75
+            self._show_notification("ОШИБКА СОХРАНЕНИЯ ДОСТУПА", duration=2200)
+            return False
+
+        self.event_collection_unlocked = True
+        self.secret_prompt_session.mark_completed(reason="collection")
+        self.secret_input_closing = True
+        self.secret_input_closing_started_at = time.monotonic()
+        self.secret_input_value = ""
+        self.event_collection_open = False
+        self.event_collection_closing = False
+        self.event_collection_window_rect = None
+        self.event_collection_close_rect = None
+        self._show_notification("КОД ПРИНЯТ · КОЛЛЕКЦИЯ СОБЫТИЙ ОТКРЫТА", duration=2600)
+        return True
+
+--- _open_event_collection (lines 2242-2249) ---
+    def _open_event_collection(self):
+        if not self.event_collection_unlocked or self.event_collection_open:
+            return False
+        self.event_collection_open = True
+        self.event_collection_opened_at = time.monotonic()
+        self.event_collection_closing = False
+        self.event_collection_closing_started_at = 0.0
+        return True
+
+--- _close_event_collection (lines 2251-2254) ---
+    def _close_event_collection(self):
+        if self.event_collection_open and not self.event_collection_closing:
+            self.event_collection_closing = True
+            self.event_collection_closing_started_at = time.monotonic()
+
+--- _draw_event_collection_window (lines 2298-2485) ---
+    def _draw_event_collection_window(self, surface):
+        width, height = surface.get_size()
+        now = time.monotonic()
+        opening_t = min(1.0, max(0.0, (now - self.event_collection_opened_at) / 0.30))
+        opening_ease = 1.0 - (1.0 - opening_t) ** 3
+        closing_t = 0.0
+        if self.event_collection_closing:
+            closing_t = min(1.0, max(0.0, (now - self.event_collection_closing_started_at) / 0.22))
+        visibility = opening_ease * (1.0 - closing_t)
+        if self.event_collection_closing and closing_t >= 1.0:
+            self.event_collection_open = False
+            self.event_collection_closing = False
+            self.event_collection_window_rect = None
+            self.event_collection_close_rect = None
+            return
+
+        shade = pygame.Surface((width, height), pygame.SRCALPHA)
+        shade.fill((0, 0, 0, int(118 * visibility)))
+        surface.blit(shade, (0, 0))
+
+        # Compact two-column archive: all 12 entries remain visible at once.
+        panel_w = min(760, max(280, width - 36))
+        panel_h = min(520, max(280, height - 36))
+        if panel_w > width - 12:
+            panel_w = width - 12
+        if panel_h > height - 12:
+            panel_h = height - 12
+        final_panel = pygame.Rect((width - panel_w) // 2, (height - panel_h) // 2, panel_w, panel_h)
+        scale = 0.90 + 0.10 * visibility
+        draw_w, draw_h = max(1, int(panel_w * scale)), max(1, int(panel_h * scale))
+        layer = pygame.Surface((panel_w, panel_h), pygame.SRCALPHA)
+
+        # Windows 95 shell with restrained arcade status accents.
+        layer.fill((192, 192, 192, 255))
+        pygame.draw.rect(layer, (255, 255, 255), (0, 0, panel_w, panel_h), 2)
+        pygame.draw.line(layer, (255, 255, 255), (2, 2), (panel_w - 3, 2), 1)
+        pygame.draw.line(layer, (255, 255, 255), (2, 2), (2, panel_h - 3), 1)
+        pygame.draw.line(layer, (64, 64, 64), (2, panel_h - 3), (panel_w - 3, panel_h - 3), 1)
+        pygame.draw.line(layer, (64, 64, 64), (panel_w - 3, 2), (panel_w - 3, panel_h - 3), 1)
+
+        title_bar = pygame.Rect(4, 4, panel_w - 8, 30)
+        pygame.draw.rect(layer, (0, 0, 128), title_bar)
+        # Pixel archive icon.
+        pygame.draw.rect(layer, (192, 192, 192), (10, 10, 15, 17))
+        pygame.draw.rect(layer, (0, 0, 0), (10, 10, 15, 17), 1)
+        pygame.draw.line(layer, (0, 0, 128), (17, 12), (17, 25), 2)
+        pygame.draw.line(layer, (0, 0, 128), (12, 16), (15, 16), 1)
+        pygame.draw.line(layer, (0, 0, 128), (19, 16), (23, 16), 1)
+        title_font = pygame.font.SysFont("Arial", 16 if panel_w >= 440 else 12, bold=True)
+        title_text = "PALCHIK.EXE — КОЛЛЕКЦИЯ СОБЫТИЙ" if panel_w >= 440 else "КОЛЛЕКЦИЯ СОБЫТИЙ"
+        title = title_font.render(title_text, True, (255, 255, 255))
+        layer.blit(title, (32, 10))
+
+        close_local = pygame.Rect(panel_w - 27, 9, 18, 18)
+        pygame.draw.rect(layer, (192, 192, 192), close_local)
+        pygame.draw.line(layer, (255, 255, 255), close_local.topleft, (close_local.right - 1, close_local.top), 2)
+        pygame.draw.line(layer, (255, 255, 255), close_local.topleft, (close_local.left, close_local.bottom - 1), 2)
+        pygame.draw.line(layer, (64, 64, 64), (close_local.left, close_local.bottom - 1), (close_local.right - 1, close_local.bottom - 1), 2)
+        pygame.draw.line(layer, (64, 64, 64), (close_local.right - 1, close_local.top), (close_local.right - 1, close_local.bottom - 1), 2)
+        close_glyph = pygame.font.SysFont("Arial", 12, bold=True).render("X", True, (0, 0, 0))
+        layer.blit(close_glyph, close_glyph.get_rect(center=close_local.center))
+
+        found_count = sum(
+            1 for item_id, _ in EVENT_COLLECTION_ITEMS
+            if self.event_collection_progress.get(item_id, {}).get("found")
+            or self.event_collection_progress.get(item_id, {}).get("completed")
+        )
+        completed_count = sum(
+            1 for item_id, _ in EVENT_COLLECTION_ITEMS
+            if self.event_collection_progress.get(item_id, {}).get("completed")
+        )
+        summary_text = (
+            f"НАЙДЕНО: {found_count:02d}/{len(EVENT_COLLECTION_ITEMS):02d}     ПРОЙДЕНО: {completed_count:02d}/{len(EVENT_COLLECTION_ITEMS):02d}"
+            if panel_w >= 520 else
+            f"НАЙДЕНО {found_count:02d}/{len(EVENT_COLLECTION_ITEMS):02d}  |  ПРОЙДЕНО {completed_count:02d}/{len(EVENT_COLLECTION_ITEMS):02d}"
+        )
+        summary_font = pygame.font.SysFont("Courier New", 12 if panel_w >= 520 else 9, bold=True)
+        summary = summary_font.render(summary_text, True, (0, 0, 96))
+        layer.blit(summary, (18, 45))
+
+        # Progress meter and short archive hint.
+        meter = pygame.Rect(18, 65, panel_w - 36, 7)
+        pygame.draw.rect(layer, (96, 96, 96), meter)
+        if len(EVENT_COLLECTION_ITEMS):
+            fill_w = int((meter.width - 2) * (found_count / len(EVENT_COLLECTION_ITEMS)))
+            if fill_w > 0:
+                pygame.draw.rect(layer, (0, 128, 0), (meter.x + 1, meter.y + 1, fill_w, meter.height - 2))
+        hint_font = pygame.font.SysFont("Arial", 10)
+        hint_text = "СОБЫТИЕ ПОЯВИТСЯ В АРХИВЕ ПОСЛЕ ОБНАРУЖЕНИЯ" if panel_w >= 420 else "АРХИВ ОБНОВЛЯЕТСЯ ПРИ ОБНАРУЖЕНИИ"
+        hint = hint_font.render(hint_text, True, (55, 55, 55))
+        layer.blit(hint, (18, 79))
+
+        # Use two columns on normal displays and three shorter columns when
+        # vertical space is limited; all 12 entries stay inside the window.
+        compact_grid = panel_h < 390
+        columns = 3 if compact_grid else 2
+        rows_per_column = 4 if compact_grid else 6
+        col_gap = 10 if compact_grid else 12
+        usable_width = max(1, panel_w - 36 - col_gap * (columns - 1))
+        col_w = max(1, usable_width // columns)
+        top = 101
+        footer_y = panel_h - 20
+        available_h = max(1, footer_y - top - 9)
+        row_h = min(62, max(27, available_h // rows_per_column))
+        card_h = max(23, row_h - 3)
+        name_size = 12 if col_w >= 250 else (10 if col_w >= 125 else 8)
+        status_size = 10 if col_w >= 250 else (8 if col_w >= 125 else 7)
+        name_font = pygame.font.SysFont("Courier New", name_size, bold=True)
+        status_font = pygame.font.SysFont("Courier New", status_size, bold=True)
+
+        for index, (item_id, item_name) in enumerate(EVENT_COLLECTION_ITEMS):
+            col = index // rows_per_column
+            row = index % rows_per_column
+            item_rect = pygame.Rect(
+                18 + col * (col_w + col_gap),
+                top + row * row_h,
+                col_w,
+                card_h,
+            )
+            item_progress = min(1.0, max(0.0, (now - self.event_collection_opened_at - 0.05 - index * 0.035) / 0.22))
+            item_ease = 1.0 - (1.0 - item_progress) ** 2
+            if item_ease <= 0:
+                continue
+            shown_rect = item_rect.move(0, int((1.0 - item_ease) * 11))
+            progress = self.event_collection_progress.get(item_id, {})
+            completed = bool(progress.get("completed", False))
+            found = bool(progress.get("found", False)) or completed
+
+            card_bg = (205, 225, 205) if completed else ((215, 228, 240) if found else (192, 192, 192))
+            pygame.draw.rect(layer, card_bg, shown_rect)
+            pygame.draw.line(layer, (255, 255, 255), shown_rect.topleft, (shown_rect.right - 1, shown_rect.top), 2)
+            pygame.draw.line(layer, (255, 255, 255), shown_rect.topleft, (shown_rect.left, shown_rect.bottom - 1), 2)
+            pygame.draw.line(layer, (96, 96, 96), (shown_rect.left, shown_rect.bottom - 1), (shown_rect.right - 1, shown_rect.bottom - 1), 2)
+            pygame.draw.line(layer, (96, 96, 96), (shown_rect.right - 1, shown_rect.top), (shown_rect.right - 1, shown_rect.bottom - 1), 2)
+
+            status_text, status_color = (
+                ("ПРОЙДЕНО", (0, 105, 35)) if completed else
+                (("НАЙДЕНО · ЕЩЁ НЕ ПРОЙДЕНО", (0, 75, 125)) if found else ("НЕ НАЙДЕНО", (80, 80, 80)))
+            )
+            indicator_color = (0, 150, 45) if completed else ((0, 105, 180) if found else (110, 110, 110))
+            compact_card = shown_rect.height < 30
+            indicator_size = 5 if compact_card else 7
+            indicator_x = shown_rect.x + (5 if compact_card else 7)
+            indicator_y = shown_rect.y + (5 if compact_card else 8)
+            pygame.draw.rect(layer, indicator_color, (indicator_x, indicator_y, indicator_size, indicator_size))
+            name_color = (15, 25, 35) if found else (75, 75, 75)
+            name_surface = name_font.render(item_name, True, name_color)
+            name_left = shown_rect.x + (13 if compact_card else 19)
+            if name_surface.get_width() > shown_rect.width - (name_left - shown_rect.x) - 5:
+                name_surface = pygame.font.SysFont("Arial", max(7, name_size - 1), bold=True).render(item_name, True, name_color)
+            name_y = shown_rect.y + (3 if compact_card else 5)
+            layer.blit(name_surface, (name_left, name_y))
+            status_surface = status_font.render(status_text, True, status_color)
+            if status_surface.get_width() > shown_rect.width - 10:
+                status_surface = pygame.font.SysFont("Arial", max(7, status_size - 1), bold=True).render(status_text, True, status_color)
+            status_bottom_pad = 2 if compact_card else 4
+            layer.blit(status_surface, (shown_rect.x + 5, shown_rect.bottom - status_surface.get_height() - status_bottom_pad))
+
+        footer = pygame.font.SysFont("Courier New", 10, bold=True).render(
+            "ESC / X — ЗАКРЫТЬ АРХИВ", True, (35, 35, 80)
+        )
+        layer.blit(footer, footer.get_rect(center=(panel_w // 2, footer_y)))
+
+        # Animated arcade scan marker along the inner bottom edge.
+        if visibility > 0.45:
+            scan_span = max(1, panel_w - 30)
+            scan_x = 12 + int((now * 125) % scan_span)
+            pygame.draw.line(layer, (0, 125, 45), (scan_x, panel_h - 5), (min(panel_w - 8, scan_x + 18), panel_h - 5), 2)
+
+        scaled = pygame.transform.scale(layer, (draw_w, draw_h))
+        scaled.set_alpha(max(0, min(255, int(255 * visibility))))
+        actual_rect = scaled.get_rect(
+            center=(final_panel.centerx, final_panel.centery + int((1.0 - opening_ease) * 16))
+        )
+        shadow = pygame.Surface((draw_w + 10, draw_h + 10), pygame.SRCALPHA)
+        pygame.draw.rect(
+            shadow, (0, 0, 0, int(100 * visibility)),
+            pygame.Rect(4, 4, draw_w, draw_h),
+        )
+        surface.blit(shadow, (actual_rect.x - 4, actual_rect.y + 1))
+        surface.blit(scaled, actual_rect)
+        self.event_collection_window_rect = final_panel
+        self.event_collection_close_rect = pygame.Rect(
+            actual_rect.x + int(close_local.x * scale),
+            actual_rect.y + int(close_local.y * scale),
+            max(1, int(close_local.width * scale)),
+            max(1, int(close_local.height * scale)),
+        )
+
+--- _handle_admin_panel_event (lines 2812-2932) ---
+    def _handle_admin_panel_event(self, event):
+        if not self.admin_panel_open or event.type != pygame.MOUSEBUTTONDOWN or event.button != 1:
+            return False
+        screen_w, screen_h = self.screen.get_size()
+        tex_w, tex_h = self.screen_texture.size
+        pos = (int(event.pos[0] * tex_w / max(1, screen_w)),
+               int(event.pos[1] * tex_h / max(1, screen_h)))
+        if self.admin_panel_rect and not self.admin_panel_rect.collidepoint(pos):
+            return True
+
+        for tab_id, rect in self.admin_tab_rects.items():
+            if rect.collidepoint(pos):
+                self.admin_panel_tab = tab_id
+                return True
+
+        for action, rect in self.admin_button_rects.items():
+            if not rect.collidepoint(pos):
+                continue
+            if action == "close":
+                self.admin_panel_open = False
+            elif action == "new_game":
+                self._admin_start_new_game()
+            elif action == "menu":
+                if self.game_logic.word_shock_active or self.event_lifecycle.is_tracked("EVT_002_WORD_SHOCK"):
+                    self._cancel_managed_word_shock(reason="RETURN_TO_MENU")
+                if self.game_logic.roach_attack_active or self.event_lifecycle.is_tracked("EVT_001_ROACH_ATTACK"):
+                    self._cancel_managed_roach_attack(reason="RETURN_TO_MENU")
+                else:
+                    self._stop_roach_audio()
+                self.admin_panel_open = False
+                self.intro_slides_active = False
+                self.name_entry_active = False
+                self.name_input_scene = None
+                self.current_screen = "menu"
+                self.audio_box.stop_music()
+                self.audio_box.play_menu_music()
+            elif action.startswith("phase_") or action == "final":
+                if not self._admin_phase_controls_available():
+                    return True
+                phase_clicks = {
+                    "phase_0": 0, "phase_1": 1500, "phase_2": 2000,
+                    "phase_3": 2500, "phase_4": 2800, "final": 3000,
+                }
+                self._admin_set_phase(phase_clicks[action])
+            elif action.startswith("minigame_"):
+                if not self._admin_phase_controls_available():
+                    return True
+                game_id = action[len("minigame_"):]
+                if game_id == "reset":
+                    self._admin_reset_minigame()
+                else:
+                    self._admin_launch_minigame(game_id)
+            elif action == "event_trigger_EVT_001_ROACH_ATTACK":
+                self._admin_trigger_event("EVT_001_ROACH_ATTACK")
+            elif action == "event_stop_EVT_001_ROACH_ATTACK":
+                self._admin_stop_event("EVT_001_ROACH_ATTACK")
+            elif action == "event_reset_EVT_001_ROACH_ATTACK":
+                self._admin_reset_event("EVT_001_ROACH_ATTACK")
+            elif action == "event_inspect_EVT_001_ROACH_ATTACK":
+                self._admin_inspect_event("EVT_001_ROACH_ATTACK")
+            elif action == "event_trigger_EVT_002_WORD_SHOCK":
+                self._admin_trigger_event("EVT_002_WORD_SHOCK")
+            elif action == "event_stop_EVT_002_WORD_SHOCK":
+                self._admin_stop_event("EVT_002_WORD_SHOCK")
+            elif action == "event_trigger_EVT_003_PLEASE_DONT_TOUCH":
+                if self._admin_trigger_evt003():
+                    self.admin_panel_open = False
+                    self._show_notification("EVT_003: REAL TRIGGER", duration=1800)
+            elif action.startswith("event_test_EVT_003_PLEASE_DONT_TOUCH_"):
+                phase_id = action[len("event_test_EVT_003_PLEASE_DONT_TOUCH_"):]
+                if self._admin_test_evt003(phase_id):
+                    self.admin_panel_open = False
+                    self._show_notification(f"EVT_003 SANDBOX: {phase_id}", duration=1800)
+            elif action == "event_reset_sandbox_EVT_003_PLEASE_DONT_TOUCH":
+                if self.evt003_state is None:
+                    self.evt003_runtime.reset_sandbox_history()
+                    self._show_notification("EVT_003 sandbox history reset.", duration=1800)
+            elif action == "logs_open_file":
+                self._open_admin_log_file()
+            elif action == "debug":
+                self.debug_mode = not self.debug_mode
+            elif action == "effects":
+                self.effects_enabled = not self.effects_enabled
+            elif action == "profiler":
+                self.profiler.start(duration=10.0, scenario="admin_panel")
+                self._show_notification("Профилирование запущено (10 сек)", duration=1500)
+            elif action == "secret_force_open":
+                self._open_secret_input(force=True)
+                self.admin_panel_open = False
+                self._show_notification("ТЕСТ: ПОЛЕ СЕКРЕТНОГО ВВОДА", duration=1500)
+            elif action == "secret_test_success":
+                self._open_secret_input(force=True)
+                self.admin_panel_open = False
+                self._submit_secret_input(SECRET_ACCESS_CODE)
+            elif action == "secret_test_failure":
+                self._open_secret_input(force=True)
+                self.admin_panel_open = False
+                self._submit_secret_input("000000")
+            elif action == "secret_clear_input":
+                self.secret_input_open = False
+                self.secret_input_closing = False
+                self.secret_input_value = ""
+                self.secret_prompt_session.retry_after_cancel()
+                self._show_notification("ПОЛЕ СЕКРЕТНОГО ВВОДА СБРОШЕНО", duration=1500)
+            elif action == "secret_reset_collection":
+                try:
+                    SaveManager.save_event_collection_state(unlocked=False)
+                except Exception:
+                    self.app_logger.exception("Не удалось сбросить коллекцию событий")
+                    self._show_notification("ОШИБКА СБРОСА КОЛЛЕКЦИИ", duration=1800)
+                else:
+                    self.event_collection_unlocked = False
+                    self.event_collection_open = False
+                    self.event_collection_closing = False
+                    self.secret_input_open = False
+                    self.secret_input_closing = False
+                    self.secret_input_value = ""
+                    self.secret_prompt_session.begin_session()
+                    self._show_notification("ДОСТУП К КОЛЛЕКЦИИ СБРОШЕН", duration=1800)
+            return True
+        return True
+
+--- _handle_game_events (lines 3063-3585) ---
+    def _handle_game_events(self, event):
+        if (self.evt004_runtime is not None and self.evt004_runtime.running
+                and event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE):
+            self._finish_evt004(cancelled=True, reason="PLAYER_CANCELLED")
+            return
+        if self.game_logic.word_shock_active and event.type != pygame.VIDEORESIZE:
+            self._handle_word_shock_input(event)
+            return
+        if self.secret_input_open and event.type != pygame.VIDEORESIZE:
+            if event.type == pygame.KEYDOWN:
+                self._handle_secret_input_key(event)
+            elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                screen_w, screen_h = self.screen.get_size()
+                tex_w, tex_h = self.screen_texture.size
+                mouse_pos = (
+                    int(event.pos[0] * tex_w / max(1, screen_w)),
+                    int(event.pos[1] * tex_h / max(1, screen_h)),
+                )
+                close_rect = getattr(self, "secret_input_close_rect", None)
+                cancel_rect = getattr(self, "secret_input_cancel_rect", None)
+                ok_rect = getattr(self, "secret_input_ok_rect", None)
+                if close_rect and close_rect.collidepoint(mouse_pos):
+                    self._cancel_secret_input()
+                elif cancel_rect and cancel_rect.collidepoint(mouse_pos):
+                    self._cancel_secret_input()
+                elif ok_rect and ok_rect.collidepoint(mouse_pos):
+                    self._confirm_secret_input()
+            return
+        if self.event_collection_open and event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_ESCAPE:
+                self._close_event_collection()
+            return
+        if event.type == pygame.VIDEORESIZE:
+            self.screen = pygame.display.set_mode((event.w, event.h), pygame.FULLSCREEN | pygame.DOUBLEBUF | pygame.OPENGL)
+            self._setup_menu_hitboxes()
+            self.game_view.width, self.game_view.height = event.w, event.h
+            self.game_view.recalculate_layout()
+        elif event.type == pygame.MOUSEBUTTONUP and event.button == 1:
+            self.game_logic.timer_scale = 1.0
+            self.game_view.lore_window_dragging = False
+            self.game_view.lore_scroll_dragging = False
+        elif event.type == pygame.MOUSEWHEEL and getattr(self.game_logic, "lore_window_open", False):
+            if not getattr(self.game_logic, "lore_text_viewer_open", False) and not getattr(self.game_logic, "lore_image_viewer_open", False):
+                screen_w, screen_h = self.screen.get_size()
+                tex_w, tex_h = self.screen_texture.size
+                mouse_pos = pygame.mouse.get_pos()
+                pos = (int(mouse_pos[0] * (tex_w / screen_w)), int(mouse_pos[1] * (tex_h / screen_h)))
+                if self.game_view.handle_lore_wheel(self.game_logic, pos, event.y):
+                    return
+        elif event.type == pygame.MOUSEMOTION:
+            if self.game_view.lore_window_dragging:
+                tex_w, tex_h = self.screen_texture.size
+                screen_w, screen_h = self.screen.get_size()
+                mouse_tex_x = int(event.pos[0] * (tex_w / screen_w))
+                mouse_tex_y = int(event.pos[1] * (tex_h / screen_h))
+                
+                win_w = int(tex_w * 0.65)
+                win_h = int(tex_h * 0.55)
+                base_x = (tex_w - win_w) // 2
+                base_y = (tex_h - win_h) // 2
+                
+                new_x = mouse_tex_x - self.game_view.lore_drag_start_x
+                new_y = mouse_tex_y - self.game_view.lore_drag_start_y
+                self.game_view.lore_window_offset_x = new_x - base_x
+                self.game_view.lore_window_offset_y = new_y - base_y
+                
+                self.game_view.lore_window_offset_x = max(-base_x, min(tex_w - win_w - base_x, self.game_view.lore_window_offset_x))
+                self.game_view.lore_window_offset_y = max(-base_y, min(tex_h - win_h - base_y, self.game_view.lore_window_offset_y))
+            elif getattr(self.game_logic, "lore_window_open", False):
+                tex_w, tex_h = self.screen_texture.size
+                screen_w, screen_h = self.screen.get_size()
+                pos = (int(event.pos[0] * (tex_w / screen_w)), int(event.pos[1] * (tex_h / screen_h)))
+                self.game_view.handle_lore_motion(self.game_logic, pos)
+            
+        elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+            self.menu_cursor.trigger_click_animation()
+            win_w, win_h = self.screen.get_size()
+            tex_w, tex_h = self.screen_texture.size
+            pos_x = int(event.pos[0] * (tex_w / win_w))
+            pos_y = int(event.pos[1] * (tex_h / win_h))
+            pos = (pos_x, pos_y)
+
+            # EVT_004 exclusively owns left-click input while the encounter is active.
+            if self._handle_evt004_click(pos):
+                return
+
+            if self.event_collection_open:
+                if self.event_collection_closing:
+                    return
+                if (self.event_collection_close_rect and self.event_collection_close_rect.collidepoint(pos)):
+                    self._close_event_collection()
+                elif self.event_collection_window_rect and not self.event_collection_window_rect.collidepoint(pos):
+                    self._close_event_collection()
+                return
+            if self.event_collection_icon_rect and self.event_collection_icon_rect.collidepoint(pos):
+                self._open_event_collection()
+                return
+
+            hx = getattr(self.game_logic, "hidden_hitbox_x", 0)
+            hy = getattr(self.game_logic, "hidden_hitbox_y", 0)
+            hidden_rect = pygame.Rect(hx - 15, hy - 15, 30, 30)
+            if hidden_rect.collidepoint(pos) and not getattr(self.game_logic, "code_window_open", False):
+                self.game_logic.code_window_open = True
+                self.game_logic.input_buffer = [None, None, None]
+                self.game_logic.current_cell_index = 0
+                self.game_logic.current_cell_buffer = ""
+                self.game_logic.system_response_text = ""
+                self.game_view.code_window_dirty = True
+                return
+            if getattr(self.game_logic, "code_window_open", False):
+                close_rect = getattr(self.game_view, "code_close_rect", None)
+                if close_rect and close_rect.collidepoint(pos):
+                    self._cancel_archive_pin()
+                    return
+                cancel_rect = getattr(self.game_view, "code_cancel_btn_rect", None)
+                if cancel_rect and cancel_rect.collidepoint(pos):
+                    self._cancel_archive_pin()
+                    return
+                if self.code_init_active:
+                    return
+                ok_rect = getattr(self.game_view, "ok_btn_rect", None)
+                if ok_rect and ok_rect.collidepoint(pos):
+                    self._submit_archive_pin()
+                    return
+                for index, field_rect in enumerate(getattr(self.game_view, "code_input_rects", [])):
+                    if field_rect.collidepoint(pos):
+                        self.game_logic.current_cell_index = index
+                        self.game_logic.current_cell_buffer = ""
+                        self.game_logic.input_buffer[index] = None
+                        self.game_view.code_window_dirty = True
+                        return
+                return
+            if getattr(self.game_logic, "lore_window_open", False):
+                if hasattr(self.game_view, 'handle_lore_viewer_click'):
+                    if self.game_view.handle_lore_viewer_click(self.game_logic, pos):
+                        return
+                
+                lore_rect = getattr(self.game_view, 'lore_win_rect', None)
+                if not lore_rect:
+                    return
+                
+                close_rect = getattr(self.game_view, 'lore_close_rect', None)
+                if close_rect and close_rect.collidepoint(pos):
+                    self.game_view.handle_lore_click(self.game_logic, pos)
+                    return
+
+                if hasattr(self.game_view, "handle_lore_menu_click"):
+                    if self.game_view.handle_lore_menu_click(self.game_logic, pos):
+                        return
+
+                header_rect = pygame.Rect(lore_rect.x, lore_rect.y, lore_rect.width, 24)
+                if header_rect.collidepoint(pos):
+                    if not (close_rect and close_rect.collidepoint(pos)):
+                        self.game_view.lore_window_dragging = True
+                        self.game_view.lore_drag_start_x = pos[0] - lore_rect.x
+                        self.game_view.lore_drag_start_y = pos[1] - lore_rect.y
+                    return
+                
+                if hasattr(self.game_view, 'handle_lore_click'):
+                    self.game_view.handle_lore_click(self.game_logic, pos)
+                return
+            
+            if getattr(self.game_logic, "lore_icon_visible", False):
+                if hasattr(self.game_view, 'rect_lore_icon') and self.game_view.rect_lore_icon:
+                    if self.game_view.rect_lore_icon.collidepoint(pos):
+                        self.game_logic.lore_window_open = not self.game_logic.lore_window_open
+                        return
+            
+            if self.game_view.rect_back.collidepoint(pos):
+                if self.game_logic.roach_attack_active or self.event_lifecycle.is_tracked("EVT_001_ROACH_ATTACK"):
+                    self._cancel_managed_roach_attack(reason="BACK_TO_MENU")
+                else:
+                    self._stop_roach_audio()
+                self.current_screen = "menu"
+                self.audio_box.play_menu_music()
+                return
+            elif self.game_view.rect_wallpaper.collidepoint(pos):
+                next_index = self.game_logic.wallpaper_index + 1
+                self.game_logic.set_wallpaper(next_index)
+                return
+            elif hasattr(self, 'subtitle_rect') and self.subtitle_rect and self.subtitle_rect.collidepoint(pos):
+                if self.subtitle_state == "waiting_click":
+                    # По упрощённой механике субтитр исчезает мгновенно по клику
+                    self.subtitle_state = "idle"
+                    self.subtitle_state_timer = 0.0
+                    self.subtitle_next_idle_timer = 0.0
+                    self.subtitle_alpha = 0
+                return
+
+            if self.game_logic.minigame_active:
+                for idx, rect in enumerate(self.game_view.rect_sectors):
+                    if rect.collidepoint(pos):
+                        self.game_logic.verify_sector_click(idx)
+                        return
+                return
+            if (
+                self.game_logic.roach_attack_active
+                and not self.game_logic.timer_active
+                and not self.game_logic.sprite_active
+                and not self.game_logic.chase_planet_active
+                and not self.game_logic.fade_screen_active
+                and self.game_logic.clicks_in_cycle < 10
+            ):
+                for hitbox_slot, roach_rect in enumerate(self.game_view.roach_hitboxes):
+                    if roach_rect.collidepoint(pos):
+                        roach_index = self.game_view.roach_hitbox_indices[hitbox_slot]
+                        roach_center = roach_rect.center
+                        reward = self.game_logic.squash_roach(roach_index)
+                        if reward:
+                            self.game_view.trigger_roach_squash(roach_center)
+                            self.audio_box.play_roach_attack("squash")
+                            self._sync_managed_roach_attack()
+                        return
+
+            if self.game_logic.clicks_in_cycle < 10 and not self.game_logic.timer_active and not self.game_logic.fade_screen_active:
+                if self.game_view.rect_target.collidepoint(pos):
+                    # Отдельный короткий звук взаимодействия с игровым объектом.
+                    self.audio_box.play_game_click()
+                    if self.game_logic.clicks_in_cycle == 0 and not self.secret_input_open:
+                        self.secret_prompt_session.begin_click_cycle()
+                    result = self.game_logic.register_click()
+                    prompt_due = self.secret_prompt_session.register_accepted_click(
+                        result not in ("IGNORE", "JAMMED", "TRAP_TRIGGERED")
+                    )
+                    if result in ("NORMAL", "GHOST_BOOST", "RESISTANCE"):
+                        sequence_result = self.game_logic.record_roach_sequence_click()
+                        if sequence_result == "WORD_SHOCK_TRIGGER":
+                            self._start_word_shock()
+                            return
+                        if sequence_result == "ROACH_TRIGGER":
+                            self._start_roach_attack()
+                            return
+                    if (
+                        prompt_due
+                        and not self.secret_input_open
+                        and not self.game_logic.roach_attack_active
+                        and not self.game_logic.minigame_active
+                        and not self.game_logic.timer_active
+                        and not self.game_logic.sprite_active
+                        and not self.game_logic.chase_planet_active
+                        and not self.game_logic.fade_screen_active
+                        and not self.game_logic.code_window_open
+                        and not self.game_logic.lore_window_open
+                    ):
+                        self._open_secret_input()
+                    if result in ["NORMAL", "LUCKY"]:
+                        self.game_view.trigger_target_animation()
+                        if result == "LUCKY":
+                            self.game_view.trigger_label_animation()
+                    return
+                else:
+                    now = pygame.time.get_ticks()
+                    if now - getattr(self.game_logic, 'click_phrase_cooldown', 0) > 1500:
+                        phase = self.game_logic.get_phase()
+                        phrase = self.game_logic.get_click_phrase(phase)
+                        if phrase:
+                            self.game_logic.current_click_phrase = phrase
+                            self.game_logic.click_phrase_timer = now + 2000
+                            self.game_logic.click_phrase_cooldown = now
+                            self.game_logic.click_phrase_alpha = 0
+                            self.game_logic.click_phrase_scale = 0.0
+                            self.game_logic.click_phrase_y_offset = 0
+                            self.game_logic.click_phrase_pos = list(pos)
+            else:
+                if self.game_logic.fade_screen_active:
+                    return
+
+                # Проверяем попадание по любой активной планете.
+                _chase_planet_target_index = None
+                _chase_planets = getattr(self.game_logic, "chase_planets", [])
+
+                if self.game_logic.sprite_active:
+                    if _chase_planets:
+                        for _planet_index, _planet in enumerate(_chase_planets):
+                            _planet_rect = pygame.Rect(
+                                int(_planet["x"]), int(_planet["y"]), 44, 44
+                            )
+                            if _planet_rect.collidepoint(pos):
+                                _chase_planet_target_index = _planet_index
+                                break
+                    else:
+                        _legacy_rect = pygame.Rect(
+                            int(self.game_logic.sprite_x),
+                            int(self.game_logic.sprite_y),
+                            44, 44,
+                        )
+                        if _legacy_rect.collidepoint(pos):
+                            _chase_planet_target_index = -1
+
+                if (
+                    (self.game_logic.timer_active or self.game_logic.sprite_active)
+                    and _chase_planet_target_index is None
+                ):
+                    self.audio_box.play_chase_planet("click")
+
+                if self.game_logic.sprite_active:
+                    if _chase_planet_target_index is not None:
+                        self.audio_box.play_chase_planet("catch")
+
+                        self.game_logic.chase_planets_caught_round += 1
+                        self.game_logic.chase_planets_caught_total += 1
+                        self.game_logic.score += 10
+
+                        if _chase_planet_target_index == -1:
+                            self.game_logic.chase_planets.clear()
+                        else:
+                            self.game_logic.chase_planets.pop(
+                                _chase_planet_target_index
+                            )
+
+                        if self.game_logic.chase_planets:
+                            _first_planet = self.game_logic.chase_planets[0]
+                            self.game_logic.sprite_x = _first_planet["x"]
+                            self.game_logic.sprite_y = _first_planet["y"]
+                            self.game_logic.sprite_active = True
+                            self.game_logic.chase_planet_active = True
+                            return
+
+                        # Раунд завершается после поимки последней планеты.
+                        self.game_logic.sprite_active = False
+                        self.game_logic.timer_active = False
+                        self.game_logic.timer_clicks = 0
+                        self.game_logic.chase_planet_active = True
+
+                        self.audio_box.play_chase_planet("victory", queue=True)
+
+                        phase_key = self.game_logic.get_phase()
+                        earth_data = TRANSLATIONS[self.current_lang]["earth_phases"]
+                        if phase_key not in earth_data:
+                            phase_key = "phase_4"
+
+                        win_pool = earth_data[phase_key]["win"]
+                        self.game_logic.set_notification(
+                            random.choice(win_pool), duration=5000
+                        )
+                        self.game_logic.notification_color = (46, 204, 113)
+                        self.game_logic.fade_screen_active = True
+                        self.game_logic.fade_start_time = int(time.monotonic() * 1000)
+                        return
+                    else:
+                        now = pygame.time.get_ticks()
+                        if now - getattr(self.game_logic, 'click_phrase_cooldown', 0) > 1500:
+                            phase = self.game_logic.get_phase()
+                            phrase = self.game_logic.get_click_phrase(phase)
+                            if phrase:
+                                self.game_logic.current_click_phrase = phrase
+                                self.game_logic.click_phrase_timer = now + 2000
+                                self.game_logic.click_phrase_cooldown = now
+                                self.game_logic.click_phrase_alpha = 0
+                                self.game_logic.click_phrase_scale = 0.0
+                                self.game_logic.click_phrase_y_offset = 0
+                                self.game_logic.click_phrase_pos = list(pos)
+                        return
+
+                click_phrase_shown = False
+
+                if self.game_logic.timer_active:
+                    pbar_center_x = tex_w // 2
+                    pbar_center_y = int(tex_h * 0.48)
+
+                    click_rect = pygame.Rect(pbar_center_x - 200, pbar_center_y - 22, 400, 44)
+                    
+                    if click_rect.collidepoint(pos) and not self.game_logic.sprite_active:
+                        self.game_logic.timer_clicks += 1
+                        self.game_logic.timer_scale = 0.94
+                        spawn_needed = getattr(self.game_logic, "sprite_spawn_clicks", 3)
+                        if self.game_logic.timer_clicks >= spawn_needed:
+                            self._spawn_chase_planets()
+                        return
+                    else:
+                        click_phrase_shown = True
+
+                else:
+                    if self.game_view.rect_instant_wash.collidepoint(pos) and self.game_logic.score >= self.game_logic.upgrade_cost and not self.game_logic.system_jammed:
+                        self.game_logic.wash_hands_instantly()
+                        return
+                    elif self.game_view.rect_free_wash_btn.collidepoint(pos):
+                        if self.game_logic.system_jammed:
+                            if self.game_logic.try_unjam_system():
+                                self._show_notification("SYSTEM RESET")
+                        else:
+                            self._start_free_clean_flow()
+                        return
+                    else:
+                        click_phrase_shown = True
+                
+                if click_phrase_shown:
+                    now = pygame.time.get_ticks()
+                    if now - getattr(self.game_logic, 'click_phrase_cooldown', 0) > 1500:
+                        phase = self.game_logic.get_phase()
+                        phrase = self.game_logic.get_click_phrase(phase)
+                        if phrase:
+                            self.game_logic.current_click_phrase = phrase
+                            self.game_logic.click_phrase_timer = now + 2000
+                            self.game_logic.click_phrase_cooldown = now
+                            self.game_logic.click_phrase_alpha = 0
+                            self.game_logic.click_phrase_scale = 0.0
+                            self.game_logic.click_phrase_y_offset = 0
+                            self.game_logic.click_phrase_pos = list(pos)
+                    return
+        elif event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_BACKQUOTE or (hasattr(event, 'unicode') and event.unicode in ('ё', 'Ё', '`', '~')):
+                self.debug_mode = not self.debug_mode
+                self._show_notification(f"DEBUG HITBOXES: {'ON' if self.debug_mode else 'OFF'}", duration=1000)
+                # Запуск профайлера на 10 секунд
+                if self.current_screen == "menu":
+                    scenario = "menu"
+                elif self.current_screen == "game":
+                    if self.game_logic.code_window_open:
+                        scenario = "game_code_window"
+                    elif self.game_logic.lore_window_open:
+                        scenario = "game_lore_window"
+                    elif self.settings_box.is_open:
+                        scenario = "game_settings"
+                    else:
+                        scenario = "gameplay"
+                else:
+                    scenario = "unknown"
+                self.profiler.start(duration=10.0, scenario=scenario)
+                self._show_notification(f"Профилирование запущено (10 сек)", duration=1500)
+            elif event.key == pygame.K_F7:
+                self.game_logic.total_clicks = 1500
+                self.game_logic._sync_to_disk()
+                self.game_logic.horror_cooldown = False
+                self.game_view.recalculate_layout()
+                msg = f"CHEAT: Phase 1 (1500 clicks)"
+                self._show_notification(msg)
+                self._on_limit_reached()
+            elif event.key == pygame.K_F8:
+                self.game_logic.total_clicks = 2500
+                self.game_logic._sync_to_disk()
+                self.game_logic.horror_cooldown = False
+                self.game_view.recalculate_layout()
+                msg = f"CHEAT: Phase 2 (2500 clicks)"
+                self._show_notification(msg)
+                self._on_limit_reached()
+            elif event.key == pygame.K_F9:
+                self.game_logic.cheat_to_paranoia()
+                self.game_logic.horror_cooldown = False
+                self.game_view.recalculate_layout()
+                new_clicks = self.game_logic.total_clicks
+                phase = self._get_phase_name(new_clicks)
+                msg = f"CHEAT: jumped to {phase} ({new_clicks} clicks)"
+                self._show_notification(msg)
+                self._on_limit_reached()
+            elif event.key == pygame.K_F10:
+                self.game_logic.total_clicks = 2800
+                self.game_logic._sync_to_disk()
+                self.game_logic.horror_cooldown = False
+                self.game_view.recalculate_layout()
+                msg = f"CHEAT: Phase 4 (2800 clicks)"
+                self._show_notification(msg)
+                self._on_limit_reached()
+            elif event.key == pygame.K_F11:
+                self.game_logic.total_clicks = 3000
+                self.game_logic._sync_to_disk()
+                self.game_logic.horror_cooldown = False
+                self.game_view.recalculate_layout()
+                msg = f"CHEAT: Final Phase (3000 clicks)"
+                self._show_notification(msg)
+                self._on_limit_reached()
+            elif event.key == pygame.K_F12:
+                self._reset_progress()
+            elif event.key == pygame.K_F5:
+                self.effects_enabled = not self.effects_enabled
+                self._show_notification(f"EFFECTS: {'ON' if self.effects_enabled else 'OFF'}", duration=1500)
+            elif event.key == pygame.K_F3:
+                if self.current_screen == "menu":
+                    scenario = "menu"
+                elif self.current_screen == "game":
+                    if self.game_logic.code_window_open:
+                        scenario = "game_code_window"
+                    elif self.game_logic.lore_window_open:
+                        scenario = "game_lore_window"
+                    elif self.settings_box.is_open:
+                        scenario = "game_settings"
+                    else:
+                        scenario = "gameplay"
+                else:
+                    scenario = "unknown"
+                self.profiler.start(duration=10.0, scenario=scenario)
+                self._show_notification(f"Профилирование запущено (10 сек)", duration=1500)
+            elif (getattr(self.game_logic, "lore_window_open", False)
+                  and not getattr(self.game_logic, "code_window_open", False)
+                  and not getattr(self.game_logic, "lore_text_viewer_open", False)
+                  and not getattr(self.game_logic, "lore_image_viewer_open", False)
+                  and self.game_view.handle_lore_key(self.game_logic, event)):
+                return
+            elif getattr(self.game_logic, "code_window_open", False):
+                logic = self.game_logic
+                if event.key == pygame.K_ESCAPE:
+                    self._cancel_archive_pin()
+                    return
+                if self.code_init_active:
+                    return
+                cache_invalidated = False
+                if event.key == pygame.K_BACKSPACE:
+                    if logic.current_cell_buffer:
+                        logic.current_cell_buffer = logic.current_cell_buffer[:-1]
+                        cache_invalidated = True
+                    elif logic.current_cell_index > 0:
+                        logic.current_cell_index -= 1
+                        logic.input_buffer[logic.current_cell_index] = None
+                        logic.current_cell_buffer = ""
+                        cache_invalidated = True
+                elif event.key in (pygame.K_RETURN, pygame.K_KP_ENTER):
+                    self._submit_archive_pin()
+                    return
+                else:
+                    digit = None
+                    if pygame.K_0 <= event.key <= pygame.K_9:
+                        digit = str(event.key - pygame.K_0)
+                    elif pygame.K_KP0 <= event.key <= pygame.K_KP9:
+                        digit = str(event.key - pygame.K_KP0)
+                    if digit is not None and logic.current_cell_index < 3 and len(logic.current_cell_buffer) < 2:
+                        logic.current_cell_buffer += digit
+                        cache_invalidated = True
+                        if len(logic.current_cell_buffer) == 2:
+                            logic.input_buffer[logic.current_cell_index] = int(logic.current_cell_buffer)
+                            logic.current_cell_index += 1
+                            logic.current_cell_buffer = ""
+                if cache_invalidated:
+                    self.game_view.code_window_dirty = True
+
+--- _draw_game_to_texture (lines 3668-3796) ---
+    def _draw_game_to_texture(self):
+        w, h = self.screen_texture.size
+        surf = pygame.Surface((w, h))
+        if self.evt004_result_state is not None:
+            self._draw_evt004_result_screen(surf)
+            self.menu_cursor.set_hover_state(False)
+            self.menu_cursor.draw(surf)
+            self.screen_texture.write(
+                pygame.image.tobytes(surf, "RGBA", True)
+            )
+            return
+        if self.evt003_state in ("RUNNING", "GAME_OVER"):
+            if self.evt003_state == "RUNNING":
+                elapsed = max(0.0, time.monotonic() - self.evt003_started_at)
+                duration = float(self.evt003_runtime.duration_seconds)
+                remaining_seconds = max(0, int(math.ceil(duration - elapsed)))
+                message = "PLEASE DON'T TOUCH ANYTHING"
+                self.evt003_presentation.draw_check(
+                    surf, message[:self.evt003_typewriter_count], elapsed,
+                    wallpaper_index=self.game_logic.wallpaper_index,
+                    remaining_seconds=remaining_seconds,
+                    duration_seconds=duration,
+                )
+            else:
+                progress = (time.monotonic() - self.evt003_gameover_started_at) / 2.35
+                self.evt003_presentation.draw_game_over(
+                    surf, progress, wallpaper_index=self.game_logic.wallpaper_index,
+                )
+            # The system cursor is normally composed by the gameplay renderer.
+            # This exclusive event render path must compose it explicitly as well.
+            self.menu_cursor.set_hover_state(False)
+            self.menu_cursor.draw(surf)
+            self.screen_texture.write(pygame.image.tobytes(surf, "RGBA", True))
+            return
+        glitch_intensity = self.game_logic.get_glitch_intensity()
+        center_text = self.game_logic.get_center_text(self.current_lang)
+        self.game_view._evt004_capture_background = bool(
+            self.evt004_runtime is not None
+            and self.evt004_runtime.running
+        )
+        self.game_view.draw(
+            surf, 
+            self.game_logic, 
+            self.current_lang,
+            self.game_seconds_left, 
+            center_text, 
+            self.game_blink_visible,
+            glitch_intensity, 
+            self.typed_phrase, 
+            self.game_logic.total_clicks,
+            self.game_logic.wallpaper_index, 
+            self.easter_egg_phrase, 
+            effects_enabled=self.effects_enabled,
+            debug_mode=self.debug_mode
+        )
+
+        # EVT_004 overlay: draw dragon and damaged targets over the game scene
+        self._draw_evt004(surf)
+
+        if self.game_logic.word_shock_active:
+            if self.admin_panel_open:
+                self._draw_admin_panel(surf)
+            self.screen_texture.write(pygame.image.tobytes(surf, "RGBA", True))
+            return
+
+        self._draw_event_collection_icon(surf)
+        self._draw_secret_input(surf)
+
+        clicks = self.game_logic.total_clicks
+        phase_name = self._get_phase_name(clicks)
+        info_text = f"{phase_name} | CLICKS: {clicks}"
+        info_surf = text_cache.get_surface(self.game_view.apply_glitch(info_text, glitch_intensity), "Courier New", 16, (0, 255, 0), bold=True)
+        surf.blit(info_surf, (w - info_surf.get_width() - 10, h - info_surf.get_height() - 10))
+
+        if self.notification_text and pygame.time.get_ticks() < self.notification_timer:
+            notif_surf = text_cache.get_surface(self.notification_text, "Courier New", 16, (255, 255, 0), bold=True)
+            surf.blit(notif_surf, (w - notif_surf.get_width() - 10, h - notif_surf.get_height() - 40))
+        elif self.notification_text:
+            self.notification_text = ""
+
+        # Draw subtitles
+        self._draw_subtitles(surf, self.font_subtitle)
+
+        # Debug overlay (restored - toggle with backtick key)
+        if self.debug_mode:
+            # Secret code
+            code_str = f"SECRET CODE: {self.game_logic.secret_code}"
+            code_surf = text_cache.get_surface(code_str, "Courier New", 16, (0, 255, 0), bold=True)
+            surf.blit(code_surf, (10, 10))
+            # FPS
+            fps = int(self.clock.get_fps())
+            fps_text = f"FPS: {fps}"
+            fps_surf = text_cache.get_surface(fps_text, "Courier New", 16, (0, 255, 0), bold=True)
+            surf.blit(fps_surf, (10, 30))
+            # Frame time
+            dt = self.clock.get_time()
+            dt_text = f"Frame: {dt} ms"
+            dt_surf = text_cache.get_surface(dt_text, "Courier New", 16, (0, 255, 0), bold=True)
+            surf.blit(dt_surf, (10, 50))
+            # CPU usage (if psutil available)
+            if PSUTIL_AVAILABLE:
+                cpu_percent = psutil.cpu_percent(interval=0.0)
+                cpu_text = f"CPU: {cpu_percent}%"
+                cpu_surf = text_cache.get_surface(cpu_text, "Courier New", 16, (0, 255, 0), bold=True)
+                surf.blit(cpu_surf, (10, 70))
+                # Memory usage
+                mem = psutil.virtual_memory()
+                mem_text = f"RAM: {mem.percent}% ({mem.used//1024//1024} MB / {mem.total//1024//1024} MB)"
+                mem_surf = text_cache.get_surface(mem_text, "Courier New", 16, (0, 255, 0), bold=True)
+                surf.blit(mem_surf, (10, 90))
+
+            text_cache.remove_by_text_prefix("FPS:")
+            text_cache.remove_by_text_prefix("Frame: ")
+            text_cache.remove_by_text_prefix("CPU:")
+            text_cache.remove_by_text_prefix("RAM:")
+            text_cache.remove_by_text_prefix("SECRET CODE:")
+
+        self._draw_admin_panel(surf)
+        if self.event_collection_open and self.evt003_state is None:
+            self._draw_event_collection_window(surf)
+        if self.evt003_state in ("FORGIVENESS_DIALOG", "PENDING_NOTICE"):
+            payload = self.evt003_dialog_payload or {}
+            self.evt003_ok_rect = self.evt003_presentation.draw_dialog(
+                surf,
+                payload.get("text", "Нарушение зафиксировано."),
+                title=payload.get("title", "СИСТЕМНОЕ УВЕДОМЛЕНИЕ"),
+            )
+        self.menu_cursor.draw(surf)
+        self.screen_texture.write(pygame.image.tobytes(surf, 'RGBA', True))
+
+--- _update_game (lines 4269-4479) ---
+    def _update_game(self):
+        if self.evt004_result_state is not None:
+            self._update_evt004_result_screen()
+            return
+        if self.event_collection_open or self.secret_input_open:
+            return
+        if self.evt004_runtime is not None:
+            self._update_evt004(self.clock.get_time() / 1000.0)
+            # EVT004 has an exclusive main_gameplay claim; do not tick normal gameplay underneath it.
+            return
+        if self.evt003_state is not None:
+            self._update_evt003()
+            return
+        self._maybe_start_evt003()
+        if self.evt003_state is not None:
+            return
+        if self.game_logic.word_shock_active or self.event_lifecycle.is_tracked("EVT_002_WORD_SHOCK"):
+            self._sync_managed_word_shock()
+        if self.game_logic.word_shock_active:
+            word_shock_update = self.game_logic.update_word_shock()
+            if word_shock_update == "MODAL_OPEN":
+                pygame.key.start_text_input()
+            elif word_shock_update == "EXPIRED":
+                pygame.key.stop_text_input()
+                self._sync_managed_word_shock()
+            return
+        now = pygame.time.get_ticks()
+        dt = self.clock.get_time() / 1000.0
+        self._update_hidden_system(dt)
+        self._update_code_init(dt)
+        
+        # Отслеживаем завершение погони, чтобы проиграть звук ухода планеты
+        # только при истечении таймера, а не после успешного захвата.
+        chase_was_active = self.game_logic.sprite_active
+        chase_timer_was_active = self.game_logic.timer_active
+
+        # Оптимизация: GameLogic.update() вызываем с dt для возможности throttling
+        self.game_logic.update()
+        self._sync_managed_roach_attack()
+        sequence_update = self.game_logic.update_roach_sequence()
+        if sequence_update == "ROACH_TRIGGER":
+            self._start_roach_attack()
+        _roach_mode_blocked = (
+            self.game_logic.minigame_active
+            or self.game_logic.timer_active
+            or self.game_logic.sprite_active
+            or self.game_logic.chase_planet_active
+            or self.game_logic.fade_screen_active
+            or self.game_logic.clicks_in_cycle >= 10
+        )
+        if self.game_logic.roach_attack_active and not _roach_mode_blocked:
+            _roach_forbidden = self.game_view.rect_target.inflate(170, 150)
+            _win_w, _win_h = self.screen.get_size()
+            _tex_w, _tex_h = self.screen_texture.size
+            _mouse = pygame.mouse.get_pos()
+            _cursor_tex = (
+                int(_mouse[0] * (_tex_w / max(1, _win_w))),
+                int(_mouse[1] * (_tex_h / max(1, _win_h))),
+            )
+            self.game_logic.update_roaches(
+                dt, self.game_view.width, self.game_view.height,
+                _roach_forbidden, cursor_pos=_cursor_tex,
+            )
+        self._sync_roach_audio()
+
+        if (
+            chase_was_active
+            and chase_timer_was_active
+            and not self.game_logic.sprite_active
+            and self.game_logic.fade_screen_active
+        ):
+            self.audio_box.play_chase_planet("escape")
+
+        self.game_view.update_animations()
+        
+        # Оптимизация CPU: обновляем уведомления и horror-фразы не каждый кадр, а раз в ~200 мс
+        if now - getattr(self, '_last_notification_update', 0) >= 200:
+            self._last_notification_update = now
+            
+            if self.game_logic.clicks_in_cycle >= 10 and not self.game_logic.minigame_active and not self.game_logic.timer_active and not self.game_logic.fade_screen_active:
+                now_ms = int(time.monotonic() * 1000)
+                if self.game_logic.notification_timer <= now_ms or self.game_logic.notification_text in ("", TRANSLATIONS[self.current_lang]["hint"]):
+                    text_source = TRANSLATIONS[self.current_lang]
+                    
+                    phase_key = self.game_logic.get_phase()
+                    
+                    if phase_key in ["phase_0", "phase_1"]:
+                        phrases_pool = text_source["phrases"]
+                    else:
+                        phrases_pool = text_source["horror_phrases"]
+                        
+                    self.game_logic.set_notification(random.choice(phrases_pool), duration=5000)
+            
+            # Update personalized horror phrases based on phase
+            if self.game_logic.is_horror_phase() and self.game_logic.player_name:
+                phase_idx = self.game_logic.get_phase_index()
+                phase_num = min(4, max(0, phase_idx - 1))
+                
+                if phase_num >= 2:
+                    personalized = self.game_logic.get_personalized_horror_phrase(self.current_lang, phase_num)
+                    if personalized and random.random() < 0.3:
+                        self.game_logic.set_notification(personalized, duration=7000)
+
+        if now - self.game_last_blink_time >= 500:
+            self.game_blink_visible = not self.game_blink_visible
+            self.game_last_blink_time = now
+        else:
+            self.game_blink_visible = True
+        if self.final_phase_triggered and self.game_logic.is_final_phase():
+            keep = self.game_view.update_typewriter(self.game_logic.total_clicks)
+            self.typed_phrase = self.game_view.display_phrase
+            if not keep and not self.game_logic.timer_active:
+                self.game_logic.timer_active = False
+                self.crash_stage = 1
+                self.fake_crash_start = now
+        else:
+            self.game_view.update_typewriter(self.game_logic.total_clicks)
+            self.typed_phrase = self.game_view.display_phrase
+
+        if self.easter_egg_timer and now > self.easter_egg_timer:
+            self.easter_egg_phrase = ""
+            self.easter_egg_timer = 0
+        if self.game_logic.sprite_active and not self.game_logic.minigame_active:
+            win_w, win_h = self.screen.get_size()
+            tex_w, tex_h = self.screen_texture.size
+            mouse_pos = pygame.mouse.get_pos()
+            mouse_tex_x = int(mouse_pos[0] * (tex_w / win_w))
+            mouse_tex_y = int(mouse_pos[1] * (tex_h / win_h))
+
+            _chase_planets = getattr(self.game_logic, "chase_planets", [])
+
+            if _chase_planets:
+                for _planet in _chase_planets:
+                    _center_x = _planet["x"] + 22
+                    _center_y = _planet["y"] + 22
+                    _dx = _center_x - mouse_tex_x
+                    _dy = _center_y - mouse_tex_y
+                    _dist = math.hypot(_dx, _dy)
+
+                    if 0 < _dist < 110:
+                        _planet["x"] += (
+                            (_dx / _dist) * self.game_logic.sprite_speed
+                            + random.uniform(-1.5, 1.5)
+                        )
+                        _planet["y"] += (
+                            (_dy / _dist) * self.game_logic.sprite_speed
+                            + random.uniform(-1.5, 1.5)
+                        )
+
+                    _planet["x"] = max(
+                        40, min(self.game_view.width - 84, _planet["x"])
+                    )
+                    _planet["y"] = max(
+                        40, min(self.game_view.height - 84, _planet["y"])
+                    )
+
+                _first_planet = _chase_planets[0]
+                self.game_logic.sprite_x = _first_planet["x"]
+                self.game_logic.sprite_y = _first_planet["y"]
+            else:
+                # Совместимость с прежним одиночным режимом.
+                _center_x = self.game_logic.sprite_x + 22
+                _center_y = self.game_logic.sprite_y + 22
+                _dx = _center_x - mouse_tex_x
+                _dy = _center_y - mouse_tex_y
+                _dist = math.hypot(_dx, _dy)
+
+                if 0 < _dist < 110:
+                    self.game_logic.sprite_x += (
+                        (_dx / _dist) * self.game_logic.sprite_speed
+                        + random.uniform(-1.5, 1.5)
+                    )
+                    self.game_logic.sprite_y += (
+                        (_dy / _dist) * self.game_logic.sprite_speed
+                        + random.uniform(-1.5, 1.5)
+                    )
+
+                    self.game_logic.sprite_x = max(
+                        40, min(self.game_view.width - 84, self.game_logic.sprite_x)
+                    )
+                    self.game_logic.sprite_y = max(
+                        40, min(self.game_view.height - 84, self.game_logic.sprite_y)
+                    )
+
+        if self.game_logic.fade_screen_active:
+            current_ms = int(time.monotonic() * 1000)
+            if current_ms - self.game_logic.fade_start_time >= self.game_logic.fade_duration:
+                self.game_logic.fade_screen_active = False
+                self.game_logic.chase_planet_active = False
+                self.game_logic.clicks_in_cycle = 0
+                self.game_logic.set_notification(TRANSLATIONS[self.current_lang]["hint"], duration=5000)
+                self.game_logic.notification_color = (255, 255, 255)
+
+        # If the second main-button press also started an exclusive legacy
+        # event, defer the secret prompt until that event releases its gameplay lock.
+        if (
+            not self.secret_input_open
+            and self.secret_prompt_session.prompt_pending
+            and not self.game_logic.roach_attack_active
+            and not self.game_logic.minigame_active
+            and not self.game_logic.timer_active
+            and not self.game_logic.sprite_active
+            and not self.game_logic.chase_planet_active
+            and not self.game_logic.fade_screen_active
+            and not self.game_logic.code_window_open
+            and not self.game_logic.lore_window_open
+        ):
+            self._open_secret_input()
+
+        # Subtitle system update
+        self._update_subtitles()
+
+==============================================================================
+COLLECTION RENDER / OPEN / CLOSE CALL SITES
+==============================================================================
+349:         self.event_collection_open = False
+350:         self.event_collection_opened_at = 0.0
+351:         self.event_collection_closing = False
+352:         self.event_collection_closing_started_at = 0.0
+354:         self.event_collection_window_rect = None
+649:         self.event_collection_open = False
+650:         self.event_collection_closing = False
+651:         self.event_collection_window_rect = None
+1981:             self.event_collection_open = False
+1982:             self.event_collection_closing = False
+1983:             self.event_collection_window_rect = None
+2002:         self.event_collection_open = False
+2003:         self.event_collection_closing = False
+2004:         self.event_collection_window_rect = None
+2243:         if not self.event_collection_unlocked or self.event_collection_open:
+2245:         self.event_collection_open = True
+2246:         self.event_collection_opened_at = time.monotonic()
+2247:         self.event_collection_closing = False
+2248:         self.event_collection_closing_started_at = 0.0
+2252:         if self.event_collection_open and not self.event_collection_closing:
+2253:             self.event_collection_closing = True
+2254:             self.event_collection_closing_started_at = time.monotonic()
+2256:     def _draw_event_collection_icon(self, surface):
+2298:     def _draw_event_collection_window(self, surface):
+2301:         opening_t = min(1.0, max(0.0, (now - self.event_collection_opened_at) / 0.30))
+2304:         if self.event_collection_closing:
+2305:             closing_t = min(1.0, max(0.0, (now - self.event_collection_closing_started_at) / 0.22))
+2307:         if self.event_collection_closing and closing_t >= 1.0:
+2308:             self.event_collection_open = False
+2309:             self.event_collection_closing = False
+2310:             self.event_collection_window_rect = None
+2417:             item_progress = min(1.0, max(0.0, (now - self.event_collection_opened_at - 0.05 - index * 0.035) / 0.22))
+2479:         self.event_collection_window_rect = final_panel
+2924:                     self.event_collection_open = False
+2925:                     self.event_collection_closing = False
+3091:         if self.event_collection_open and event.type == pygame.KEYDOWN:
+3149:             if self.event_collection_open:
+3150:                 if self.event_collection_closing:
+3154:                 elif self.event_collection_window_rect and not self.event_collection_window_rect.collidepoint(pos):
+3733:         self._draw_event_collection_icon(surf)
+3786:         if self.event_collection_open and self.evt003_state is None:
+3787:             self._draw_event_collection_window(surf)
+4273:         if self.event_collection_open or self.secret_input_open:
+
+==============================================================================
+EVENTS/SECRET_ACCESS.PY — COMPLETE SOURCE
+==============================================================================
+"""Fixed numeric secret access and the PALCHIK event collection index."""
+from __future__ import annotations
+
+import secrets
+from collections.abc import Mapping
+
+EVENT_COLLECTION_ITEMS = (
+    ("dead_people", "Я ВИЖУ МЁРТВЫХ ЛЮДЕЙ"),
+    ("always_told_truth", "Я ВСЕГДА ГОВОРИЛ ПРАВДУ"),
+    ("sweet_roll", "НАЙДИ СЛАДКИЙ РУЛЕТ"),
+    ("talk_to_me", "ПОГОВОРИ СО МНОЙ"),
+    ("road_of_adventures", "ДОРОГА ПРИКЛЮЧЕНИЙ"),
+    ("you_are_all_wrong", "ДА, ВЫ БУКВАЛЬНО ВСЕ НЕ ПРАВЫ"),
+    ("king_has_fallen", "КОРОЛЬ ПАЛ, МИЛОРД"),
+    ("what_did_you_expect", "НУ.. А ЧТО ТЫ ОЖИДАЛ?"),
+    ("cloning", "КЛОНИРОВАНИЕ"),
+    ("why_did_i_do_that", "ЗАЧЕМ Я ЭТО СДЕЛАЛ?"),
+    ("secret_level_unlocked", "СЕКРЕТНЫЙ УРОВЕНЬ РАЗБЛОКИРОВАН"),
+    ("please_touch_anything", "ПЛИЗ ТАЧ ЭНИФИНГ"),
+)
+EVENT_COLLECTION_IDS = frozenset(item_id for item_id, _ in EVENT_COLLECTION_ITEMS)
+
+
+SECRET_ACCESS_CODE = "172314"
+SECRET_ACCESS_CODE_LENGTH = 6
+
+
+def is_valid_numeric_code(candidate: str) -> bool:
+    """Validate the fixed six-digit secret code; it never rotates per session."""
+    return (
+        isinstance(candidate, str)
+        and len(candidate) == SECRET_ACCESS_CODE_LENGTH
+        and candidate.isascii()
+        and candidate.isdigit()
+        and secrets.compare_digest(candidate, SECRET_ACCESS_CODE)
+    )
+
+
+def normalize_event_collection_progress(raw: object) -> dict[str, dict[str, bool]]:
+    """Normalize known items and preserve progress for future event IDs."""
+    source = raw if isinstance(raw, Mapping) else {}
+    result: dict[str, dict[str, bool]] = {}
+    for item_id, _ in EVENT_COLLECTION_ITEMS:
+        item = source.get(item_id, {})
+        if not isinstance(item, Mapping):
+            item = {}
+        found = bool(item.get("found", False))
+        completed = bool(item.get("completed", False))
+        result[item_id] = {"found": found or completed, "completed": completed}
+    for item_id, item in source.items():
+        if item_id in result or not isinstance(item_id, str) or not isinstance(item, Mapping):
+            continue
+        found = bool(item.get("found", False))
+        completed = bool(item.get("completed", False))
+        result[item_id] = {"found": found or completed, "completed": completed}
+    return result
+
+
+def mark_event_found(progress: object, event_id: str) -> dict[str, dict[str, bool]]:
+    if event_id not in EVENT_COLLECTION_IDS:
+        raise KeyError(f"Unknown PALCHIK collection event: {event_id}")
+    result = normalize_event_collection_progress(progress)
+    result[event_id]["found"] = True
+    return result
+
+
+def mark_event_completed(progress: object, event_id: str) -> dict[str, dict[str, bool]]:
+    if event_id not in EVENT_COLLECTION_IDS:
+        raise KeyError(f"Unknown PALCHIK collection event: {event_id}")
+    result = normalize_event_collection_progress(progress)
+    result[event_id]["found"] = True
+    result[event_id]["completed"] = True
+    return result
+
+
+class SecretPromptSession:
+    """Per-game-session gate for the two-click secret prompt.
+
+    Collection unlock is intentionally not part of this state: it is persistent,
+    while this object is reset whenever a new gameplay session begins.
+    """
+
+    def __init__(self) -> None:
+        self.accepted_clicks = 0
+        self.triggered_this_cycle = False
+        self.completed_this_session = False
+        self.completion_reason = None
+
+    def begin_session(self) -> None:
+        self.accepted_clicks = 0
+        self.triggered_this_cycle = False
+        self.completed_this_session = False
+        self.completion_reason = None
+
+    def begin_click_cycle(self) -> None:
+        if self.completed_this_session:
+            return
+        self.accepted_clicks = 0
+        self.triggered_this_cycle = False
+
+    def register_accepted_click(self, accepted: bool = True) -> bool:
+        if not accepted or self.completed_this_session:
+            return False
+        self.accepted_clicks += 1
+        if self.accepted_clicks >= 2 and not self.triggered_this_cycle:
+            self.triggered_this_cycle = True
+            return True
+        return False
+
+    @property
+    def prompt_pending(self) -> bool:
+        return (
+            not self.completed_this_session
+            and self.triggered_this_cycle
+            and self.accepted_clicks >= 2
+        )
+
+    def retry_after_cancel(self) -> None:
+        if self.completed_this_session:
+            return
+        self.accepted_clicks = 0
+        self.triggered_this_cycle = False
+
+    def mark_completed(self, reason: str = "session") -> None:
+        """Block further prompts and remember why the cycle was completed."""
+        self.completed_this_session = True
+        self.triggered_this_cycle = True
+        self.completion_reason = reason
+
+    def retry_after_event(self) -> None:
+        """Allow another secret prompt after an EVT_004 run has finished."""
+        if self.completion_reason != "event":
+            return
+
+        self.accepted_clicks = 0
+        self.triggered_this_cycle = False
+        self.completed_this_session = False
+        self.completion_reason = None
+
+def choose_event_collection_icon_rect(
+    surface_size: tuple[int, int],
+    occupied_rects: object = (),
+    icon_size: int = 42,
+    margin: int = 18,
+) -> tuple[int, int, int, int] | None:
+    """Choose a free HUD slot without covering existing gameplay controls.
+
+    Rectangles are supplied as (x, y, width, height). Candidates are ordered
+    from upper-right down the right edge, then into free left-side slots.
+    """
+    width, height = int(surface_size[0]), int(surface_size[1])
+    if width < icon_size or height < icon_size:
+        return None
+
+    occupied = []
+    for rect in occupied_rects or ():
+        if rect is None:
+            continue
+        try:
+            x, y, w, h = (int(value) for value in rect)
+        except (TypeError, ValueError):
+            continue
+        if w > 0 and h > 0:
+            occupied.append((x, y, w, h))
+
+    step = icon_size + 12
+    candidates = [
+        (width - icon_size - margin, margin),
+        (width - icon_size - margin, margin + step),
+        (width - icon_size - margin, margin + 2 * step),
+        (margin, margin + step),
+        (margin, height - icon_size - margin),
+        (width - icon_size - margin, max(margin, height // 3)),
+    ]
+
+    def available(x: int, y: int) -> bool:
+        if x < 0 or y < 0 or x + icon_size > width or y + icon_size > height:
+            return False
+        for ox, oy, ow, oh in occupied:
+            if x < ox + ow and x + icon_size > ox and y < oy + oh and y + icon_size > oy:
+                return False
+        return True
+
+    for x, y in candidates:
+        if available(x, y):
+            return (x, y, icon_size, icon_size)
+
+    # Last-resort deterministic scan over the upper half of the HUD.
+    y_limit = max(margin, min(height - icon_size - margin, height // 2))
+    for y in range(margin, y_limit + 1, step):
+        for x in range(width - icon_size - margin, margin - 1, -step):
+            if available(x, y):
+                return (x, y, icon_size, icon_size)
+    return None
+
+
+==============================================================================
+EVENT CONFIG / PASSPORT INVENTORY
+==============================================================================
+
+--- config\events\evt_001_roach_attack.json ---
+{
+  "event_id": "EVT_001_ROACH_ATTACK",
+  "source": "ACTION",
+  "subcategories": [
+    "ACTION_02"
+  ],
+  "enabled": true,
+  "parameters": {
+    "roaches_per_event": 24,
+    "reward_per_roach": 1,
+    "sequence_clicks": 3,
+    "pause_seconds": 1.0
+  },
+  "notes": "Classification is based on the one-time score reward. Runtime values remain owned by the legacy controller until migration."
+}
+
+--- config\events\evt_002_word_shock.json ---
+{
+  "event_id": "EVT_002_WORD_SHOCK",
+  "source": "ACTION",
+  "subcategories": [
+    "ACTION_01"
+  ],
+  "enabled": true,
+  "parameters": {
+    "duration_min_seconds": 120,
+    "duration_max_seconds": 180,
+    "confirmation_after_seconds": 30,
+    "wrong_answer_extension_seconds": 60,
+    "accepted_answers": [
+      "ХОРОШО",
+      "ОК",
+      "ОКЕЙ",
+      "ЛАДНО",
+      "ПРИНЯТО",
+      "ПОНЯЛ"
+    ]
+  },
+  "notes": "Classification means no persistent consequence after the event. Runtime values remain owned by the legacy controller until migration."
+}
+
+--- config\events\evt_003_notifications.json ---
+{
+  "phase_0": {
+    "FIRST_NOTICE": "Вы коснулись игрового поля во время проверки. Инструкция была показана до начала отсчёта. Следующий запуск пройдёт без дополнительных пояснений.",
+    "FORGIVENESS": "Мы заметили, что вы нарушили установленное правило. В этот раз мы готовы закрыть на это глаза. Пожалуйста, больше не нажимайте на игровое поле во время проверки.",
+    "PUNISHMENT": "Вы нарушили прямую инструкцию. Игровой сеанс был завершён. Нарушение внесено в журнал."
+  },
+  "phase_1": {
+    "FIRST_NOTICE": "Вы нарушили просьбу, отображённую на экране. Это первое зафиксированное нарушение. Ваши действия сохранены.",
+    "FORGIVENESS": "В предыдущей фазе вы выдержали проверку. Сегодня вы поступили иначе. Мы готовы простить это нарушение. Не заставляйте нас повторять предупреждение.",
+    "PUNISHMENT": "В предыдущей фазе вы уже доказали, что способны соблюдать правила. Тем не менее вы решили поступить иначе. На этот раз мы не будем делать вид, что ничего не произошло."
+  },
+  "phase_2": {
+    "FIRST_NOTICE": "Вы нарушили инструкцию во время проверки. Это первое зарегистрированное нарушение. В дальнейшем мы будем учитывать ваши действия.",
+    "FORGIVENESS": "Ваши предыдущие действия показывают, что вы способны соблюдать правила. Мы предоставляем вам ещё одну возможность. Не нажимайте на игровое поле во время проверки.",
+    "PUNISHMENT": "Это уже не случайность, которую можно не заметить. Вы проигнорировали прямую просьбу. Нарушение зафиксировано. Снисхождения не будет."
+  },
+  "phase_3": {
+    "FIRST_NOTICE": "Инструкция была ясной: не прикасаться к игровому полю. Вы её нарушили. Этот случай сохранён.",
+    "FORGIVENESS": "Мы помним не только нарушения, но и случаи, когда вы соблюдали просьбу. Ваша история всё ещё позволяет нам дать вам ещё одну возможность.",
+    "PUNISHMENT": "Мы уже неоднократно объясняли правила. Вы продолжаете игнорировать их. Игровой сеанс завершён, нарушение занесено в историю."
+  },
+  "phase_4": {
+    "FIRST_NOTICE": "Вы нарушили установленное правило. Мы зафиксировали это действие. В следующих проверках будем учитывать случившееся.",
+    "FORGIVENESS": "Ваши предыдущие результаты не остались незамеченными. Несмотря на нарушение, мы готовы закрыть этот вопрос. Не испытывайте наше терпение.",
+    "PUNISHMENT": "Предупреждений было достаточно. Ваше решение нажать на игровое поле зафиксировано. Мы больше не будем трактовать это как случайную ошибку."
+  },
+  "final": {
+    "FIRST_NOTICE": "Даже на этой стадии вы решили проверить запрет. Нарушение сохранено. Следующие решения будут учитывать этот поступок.",
+    "FORGIVENESS": "Мы помним весь путь до этой фазы. Вы не всегда следовали инструкции, но сегодня мы готовы оставить нарушение без дальнейших последствий. Это решение не означает, что мы забыли.",
+    "PUNISHMENT": "Вы знаете правило и знаете последствия. Тем не менее вы снова нарушили его. На этот раз решение принято без дополнительных предупреждений."
+  }
+}
+
+--- config\events\evt_003_please_dont_touch.json ---
+{
+  "event_id": "EVT_003_PLEASE_DONT_TOUCH",
+  "source": "RANDOM",
+  "subcategories": [
+    "RANDOM_05"
+  ],
+  "enabled": true,
+  "parameters": {
+    "duration_seconds": 30.0,
+    "once_per_phase": true,
+    "message": "PLEASE DON'T TOUCH ANYTHING",
+    "typewriter": true,
+    "typewriter_interval": 0.09,
+    "violation_area": "ENTIRE_GAME_FIELD",
+    "violation_action": "FIRST_MOUSE_BUTTON_DOWN",
+    "random_delay_min_seconds": 35,
+    "random_delay_max_seconds": 85,
+    "notification_config": "evt_003_notifications.json"
+  },
+  "notes": "Full gameplay integration through the existing PALCHIK EventManager. One random attempt per phase."
+}
+
+--- config\events\evt_004_road_of_adventures.json ---
+{
+  "event_id": "EVT_004_ADVENTURE_ROAD",
+  "collection_id": "road_of_adventures",
+  "label": "ДОРОГА ПРИКЛЮЧЕНИЙ",
+  "description": "Бой с драконом, который атакует игровую оболочку PALCHIK.",
+  "source": "ACTION",
+  "trigger_code": "111111",
+  "collection_unlock_code": "172314",
+  "subcategories": [
+    "ACTION_03"
+  ],
+  "implementation": "events.evt004_runtime.AdventureRoadRuntime",
+  "status": "integration_candidate",
+  "resources": [
+    "main_gameplay",
+    "event_overlay",
+    "mouse_input",
+    "cursor",
+    "event_audio"
+  ],
+  "exclusive_resources": [
+    "main_gameplay",
+    "event_overlay",
+    "mouse_input"
+  ],
+  "parameters": {
+    "dragon_hp": 8,
+    "player_attack_interval_seconds": 0.34,
+    "player_invulnerability_seconds": 0.42,
+    "player_hit_radius": 68,
+    "target_default_hp": 2,
+    "victory_condition": "dragon_hp_zero",
+    "defeat_condition": "all_interface_targets_destroyed",
+    "collection_found_on": "event_start",
+    "collection_completed_on": "victory_only",
+    "admin_sandbox_does_not_write_player_progress": true
+  },
+  "audio": {
+    "music": "assets/music/events/adventure_road/sfx/evt_started_Showdown.mp3",
+    "events": {
+      "appearance": "assets/music/events/adventure_road/sfx/dragon_appearance.wav",
+      "death": "assets/music/events/adventure_road/sfx/dragon_death.wav",
+      "fire_breath": "assets/music/events/adventure_road/sfx/dragon_fire_breath.wav",
+      "ground_attack": "assets/music/events/adventure_road/sfx/dragon_ground_attack.wav",
+      "hit": "assets/music/events/adventure_road/sfx/dragon_hit.wav",
+      "landing": "assets/music/events/adventure_road/sfx/dragon_landing.wav",
+      "roar": "assets/music/events/adventure_road/sfx/dragon_roar.wav",
+      "wing_flap_loop": "assets/music/events/adventure_road/sfx/dragon_wing_flap_loop.wav",
+      "interface_break": "assets/music/events/adventure_road/sfx/interface_break.wav"
+    }
+  }
+}
+
+--- docs\evt004_technical_passport.md ---
+# Технический паспорт — EVT_004 «Дорога приключений»
+
+**Дата:** 2026-11-12  
+**Версия:** 1.0  
+**Статус:** Внедрение в основную игру
+
+---
+
+## 1. Назначение события
+
+EVT_004 «Дорога приключений» — событие, в котором игрок взаимодействует с драконом, который атакует элементы игрового интерфейса PALCHIK в реальной игровой сцене. Игрок может атаковать дракона предусмотренным игровым управлением (ЛКМ), а дракон — обычные элементы интерфейса (кнопки, панель, поля ввода и т.д.) через автономную систему выбора целей и атак.
+
+Событие интегрировано в основную игру через:
+- `events/catalog.py` — регистрация в каталоге событий;
+- `events/manager.py` — жизненный цикл через `EventManager`;
+- `main.py` — точка входа, игровой цикл, отрисовка, ввод, аудио, сохранения;
+- `game_scene.py` — отрисовка целей и дракона поверх игровой сцены.
+
+
+---
+
+## 2. Условия запуска
+
+### 2.1 Секретный код (обычный игрок)
+- Пользователь вводит код **111111** в поле ввода секретного кода.
+- Код проверяется функцией `is_valid_numeric_code()` из `events.secret_access`.
+- При успехе вызывается метод `_start_evt004_from_secret_code()` в `main.py`.
+- Код **172314** по-прежнему выполняет только функцию разблокировки коллекции и не изменялся.
+
+### 2.2 Административная панель (тестирование)
+- Администратор запускает событие через кнопку админ-панели, используя `_admin_trigger_event("EVT_004_ADVENTURE_ROAD")`.
+- Административный запуск инициализируется с флагом `admin_sandbox=True` в данных события.
+- Административный тест не записывает результат в сохранённый прогресс обычного игрока.
+
+### 2.3 Блокировки запуска
+- Событие не может запустить, если оно уже активно: `EventManager.can_start()` возвращает `EVENT_ALREADY_ACTIVE`.
+- Событие недоступно, если `game` сцена не активна (не в `_admin_phase_controls_available()`).
+
+---
+
+## 3. Состояние и жизненный цикл
+
+### 3.1 Статусы жизненного цикла (EventStatus)
+- `IDLE` — событие не запущено;
+- `ACTIVE` — событие запущено, дракон появляется и идёт бой;
+- `COMPLETED` — событие завершилось победой (дракон уничтожен, анимация смерти завершена);
+- `FAILED` — событие завершилось поражением (все цели интерфейса уничтожены);
+- `CANCELLED` — событие прервано хостом (админ или ввод).
+
+### 3.2 Жизненный цикл
+1. **Запуск:** `EventManager.begin("EVT_004_ADVENTURE_ROAD")` → `EventStatus.ACTIVE`.
+2. **Активность:** `AdventureRoadRuntime` работает в `main.py._update_evt004()`.
+3. **Завершение:**
+   - Победа — `dragon.state == DEATH` и `death_elapsed >= 1.7` → `_finish_evt004(failed=False, ...)`;
+   - Поражение — `remaining_targets == 0` → `_finish_evt004(failed=True, ...)`;
+   - Отмена — `runtime.cancel()` или `_finish_evt004(cancelled=True, ...)`.
+4. **Освобождение ресурсов:** `EventManager.finish()` вызывает `arbiter.release_all()`; `audio_box.stop_music()` и `play_game_music()` восстанавливают звук.
+
+### 3.3 Эксклюзивные ресурсы
+- `main_gameplay` (EXCLUSIVE)
+- `event_overlay` (EXCLUSIVE)
+- `mouse_input` (EXCLUSIVE)
+
+---
+
+## 4. Игровая механика
+
+### 4.1 Дракон (AdventureRoadDragon)
+- **Спрайты:** используются атласы из `assets/games_sprites/adventure_road/`:
+  - `dragon_flight.png` (8 кадров, 9 FPS) — полёт и появление;
+  - `dragon_ground_idle.png` (5 кадров, 5 FPS) — наземный отдых;
+  - `dragon_roar.png` (29 кадров, 12 FPS) — рев;
+  - `dragon_ground_attack.png` (36 кадров, 12 FPS) — наземная атака.
+- **Состояния:** `GROUNDED`, `APPEAR`, `ROAR`, `FLIGHT`, `FLY_ATTACK`, `LANDING`, `GROUND_ATTACK`, `HIT`, `DEATH`.
+- **Перемещение:** свободное двухмерное позиционирование, автопилот, наведение на цель.
+- **Анимация смерти:** пиксельная дезинтеграция, длится 1.7 секунды.
+
+### 4.2 Цели интерфейса (InterfaceTarget)
+Дракон атакует реальные UI-элементы `GameScene`:
+- Бэк-кнопка (назад)
+- Целевая кнопка
+- Кнопка фразы
+- Мгновенная мытьё
+- Бесплатное мытьё
+- Обои
+- Панель прогресса
+- Окно ввода имени
+
+Каждая цель имеет `hp` (умение выносить удары) и при уничтожении показывает эффекты: вспышка, тряска, обломки.
+
+### 4.3 Попадания и режимы игры
+- **Параметры runtime:** `dragon_hp = 8`, `player_attack_interval = 0.34`, `player_invulnerability = 0.42`, `player_hit_radius = 68`.
+- **Ход игрока:** ЛКМ — ударить по дракону в радиусе 68 пикселей вокруг дракона.
+- **Ход дракона:** автономно выбирает цели, подходит, атакует воздушной или наземной атакой, уворот от ударов игрока.
+- **Попадание:** `hit_flash = 0.22`, `shake_time = 0.24`, particle эффекты.
+
+### 4.4 Визуальные эффекты
+- Попадание: вспышка спрайта, пули частиц, отдача дракона.
+- Уничтожение цели: вспышка цели, тряска экрана, обломки частиц.
+- Смерть дракона: пиксельная дезинтеграция с фрагментами.
+
+
+---
+
+## 5. Управление
+
+| Управление | Действие |
+|---|---|
+| ЛКМ | Атаковать дракона в зоне удара (радиус 68 пикс.) |
+| Правый клик | (Не обработан в событии) — дракон использует автономный AI |
+| ESC | Отмена события (в меню) |
+
+Во время активности EVT_004 все клики маршрутизируются в `_handle_evt004_click()` в `main.py`. Игрокские клики на обычные элементы интерфейса не обрабатываются до завершения события.
+
+---
+
+## 6. Условия победы и поражения
+
+### 6.1 Победа
+Наступает когда:
+- Здоровье дракона достигает 0 (`dragon_hp == 0`), и
+- Дракон запускает анимацию смерти (`start_death()`) и анимация завершена (`death_elapsed >= 1.7`).
+
+Результат: `VICTORY` → `EventStatus.COMPLETED`.  
+Коллекция `road_of_adventures` помечается как `found=True` и `completed=True`.
+
+### 6.2 Поражение
+Наступает когда:
+- Все цели интерфейса уничтожены (`remaining_targets == 0`).
+
+Результат: `DEFEAT` → `EventStatus.FAILED`.  
+Коллекция `road_of_adventures` помечается как `found=True` (но не `completed`).
+
+### 6.3 Отмена
+- Игрок прерывает событие через меню: `runtime.cancel()`.
+- Результат: `CANCELLED` → `EventStatus.CANCELLED`.
+
+---
+
+## 7. Взаимодействие с интерфейсом
+
+### 7.1 Способ взаимодействия
+Событие **не создаёт отдельное окно**. Оно рисуется прямо поверх игровой сцены `GameScene`:
+1. `GameScene.draw()` отрисовывает основную сцену.
+2. `main.py._draw_game_to_texture()` вызывает `self._draw_evt004(surf)`, который копирует поверхность и отрисовывает дракона и повреждённые цели поверх.
+3. Цели интерфейса используют реальные rect'ы `GameScene`: `rect_back`, `rect_target`, `rect_phrase_btn`, `rect_instant_wash`, `rect_free_wash_btn`, `rect_wallpaper`, `rect_pbar`, `rect_name_entry_btn`.
+
+### 7.2 Повреждение интерфейсных элементов
+При атаке цель получает:
+- `hit_flash = 0.22` — мигание цели;
+- `shake_time = 0.24` — тряска цели;
+- `fragments` — частицы обломков;
+- При `hp == 0`: `destroyed = True`, цель становится невидимой.
+
+---
+
+## 8. Аудиоресурсы
+
+### 8.1 Структура аудиосистемы
+Используется существующий `AudioController` (`audio_system.py`). Никаких новых классов не создаётся.
+
+### 8.2 Каталог аудио
+- `assets/music/events/adventure_road/adventure_road_theme.wav` — фоновое музыкальное сопровождение;
+- `assets/music/events/adventure_road/sfx/*.wav` — SFX:
+  - `dragon_appearance.wav` — появление дракона;
+  - `dragon_roar.wav` — рев;
+  - `dragon_fire_breath.wav` — огненная дыра;
+  - `dragon_ground_attack.wav` — наземная атака;
+  - `dragon_hit.wav` — попадание;
+  - `dragon_landing.wav` — посадка;
+  - `dragon_wing_flap_loop.wav` — катание крыльев;
+  - `dragon_death.wav` — смерть;
+  - `interface_break.wav` — разрушение интерфейса.
+
+### 8.3 Цикл аудио
+1. **На старте:** `audio_box.stop_music()` → `audio_box.play_file(music_theme, volume=0.7, channel="event_music")`.
+2. **Во время:** звуки вызываются через `AdventureRoadRuntime.audio_events()` и `AudioController.play_sfx_from_sound()`.
+3. **По завершении:** `audio_box.stop_music()` → `audio_box.play_game_music()`.
+
+### 8.4 Защита от лагов
+- Все аудио операции заключены в `try/except Exception` со логом через `self.app_logger.exception()`.
+- Во время отмены и завершения звуки гарантированно останавливаются.
+
+---
+
+## 9. Сохранение результатов
+
+### 9.1 Сохранение результатов
+Используется `SaveManager.save_event_state()`:
+```python
+SaveManager.save_event_state("EVT_004_ADVENTURE_ROAD", {
+    "outcome": "VICTORY" | "DEFEAT" | "CANCELLED",
+    "reason": "...",
+    "dragon_hp": 0,
+    "dragon_max_hp": 8,
+    "destroyed_targets": 6,
+    "total_targets": 8,
+    "finished_at": 12345.67,
+})
+```
+
+### 9.2 Коллекция
+- **Победа:** `mark_event_completed(progress, "road_of_adventures")` → `found=True, completed=True`.
+- **Поражение:** `mark_event_found(progress, "road_of_adventures")` → `found=True, completed=False`.
+- **Отмена:** не сохраняет изменений в коллекции.
+
+### 9.3 Административный тест
+- Данные события сохраняются в `inst.data["admin_sandbox"] = True`.
+- `_finish_evt004()` проверяет `is_admin_sandbox` и пропускает запись в сохранение.
+- Пользовательский прогресс остаётся неизменным.
+
+### 9.4 Исключения
+Сохранение обёрнуто в `try/except` с логированием `self.app_logger.exception("EVT_004 save state failed")`. Если сохранение не удалось, событие продолжает работу.
+
+---
+
+## 10. Используемые ресурсы
+
+### 10.1 Спрайты
+- `assets/games_sprites/adventure_road/dragon_flight.png`
+- `assets/games_sprites/adventure_road/dragon_ground_idle.png`
+- `assets/games_sprites/adventure_road/dragon_roar.png`
+- `assets/games_sprites/adventure_road/dragon_ground_attack.png`
+
+### 10.2 Аудио
+- `assets/music/events/adventure_road/adventure_road_theme.wav`
+- `assets/music/events/adventure_road/sfx/*.wav` (9 файлов)
+
+### 10.3 Пояснения
+- Конфигурация: `config/events/evt_004_road_of_adventures.json`
+- Каталог событий: `events/catalog.py`
+- Менеджер: `events/manager.py`
+- Runtime: `events/evt004_runtime.py`
+- Презентация: `events/evt004_presentation.py`
+
+---
+
+---
+
+## 11. Точки интеграции
+
+| Модуль | Точка интеграции | Назначение |
+|---|---|---|
+| `main.py` | `_submit_secret_input()` | Запуск по коду 111111 |
+| `main.py` | `__init__()` | Создание переменных `evt004_runtime`, `evt004_instance_id`, и т.д. |
+| `main.py` | `_start_evt004_from_secret_code()` | Запуск события по секретному коду |
+| `main.py` | `_start_evt004_admin()` | Админ-скрипт запуска |
+| `main.py` | `_finish_evt004()` | Обработка результата |
+| `main.py` | `_update_evt004()` | Кадровая обновление |
+| `main.py` | `_draw_evt004()` | Отрисовка поверх сцены |
+| `main.py` | `_handle_evt004_click()` | Обработка кликов |
+| `main.py` | `_update_game()` | Интеграция в цикл обновления |
+| `main.py` | `_draw_game_to_texture()` | Интеграция в отрисовку |
+| `main.py` | Основной цикл событий | Маршрутизация кликов |
+| `events/catalog.py` | `load_default_catalog()` | Регистрация EVT_004 |
+| `events/manager.py` | `finish()` | Поддержка статуса `FAILED` |
+| `events/evt004_runtime.py` | `AdventureRoadRuntime` | Ядро игровой логики |
+| `events/evt004_presentation.py` | `AdventureRoadPresentation` | Отрисовка над сценой |
+
+---
+
+## 12. Обработка ошибок
+
+### 12.1 Запуск
+- `EventManager.begin()` выбрасывает `RuntimeError` с кодом блокировки (например, `EVENT_ALREADY_ACTIVE`).
+- `AdventureRoadRuntime` проверяет `dragon_hp >= 1`, иначе `ValueError: dragon_hp must be positive`.
+
+### 12.2 Аудио
+- `try/except Exception` вокруг `audio_box.play_file()` и `audio_box.stop_music()` → лог через `app_logger.exception()`.
+
+### 12.3 Сохранения
+- `SaveManager.save_event_state()` обёрнут в `try/except Exception` с логом.
+- Админ-сандбокс не записывает в сохранение.
+
+### 12.4 Сбои в работе
+Любая фатальная ошибка логируется через `app_logger.exception()`, но не прерывает работу игры.
+
+---
+
+## 13. Критерии приёмки
+
+### 13.1 Функциональные критерии
+1. ✅ Ввод кода `111111` запускает EVT_004.
+2. ✅ Ввод кода `172314` по-прежнему разблокирует коллекцию без запуска события.
+3. ✅ Администратор может запустить EVT_004 через админ-панель.
+4. ✅ Административный тест не записывает в сохранение обычного игрока.
+5. ✅ Дракон появляется над игровой сценой.
+6. ✅ Дракон перемещается свободно в 2D пространстве.
+7. ✅ Игроку доступен ЛКМ для атаки дракона.
+8. ✅ Дракон атакует цели интерфейса (бэк, цель, фраза, мытьё, обои, прогресс, имя).
+9. ✅ Попадание цели видимо визуально (вспышка, тряска, частицы).
+10. ✅ Победа: дракон умирает, анимация смерти завершается, игра возвращается в основной режим.
+11. ✅ Поражение: все цели уничтожены, игра возвращается в основной режим.
+12. ✅ Аудио: играет тема события, фоновую музыку запрещается, после завершения восстанавливается.
+
+### 13.2 Нефункциональные критерии
+1. ✅ Событие не создаёт отдельное окно.
+2. ✅ Очередной экземпляр EVT_004 не запускается, если первый ещё активен.
+3. ✅ Нет наложения звука события на последующие игровые сессии.
+4. ✅ Нет модификации кодов 172314 и 111111.
+5. ✅ Никакой код EVT_001, EVT_002, EVT_003 не затрагивается без доказанной необходимости.
+6. ✅ Нет дублирования менеджера событий — используется существующий `EventManager`.
+
+---
+
+*Паспорт подготовлен для интеграции события EVT_004 в основную игру PALCHIK.EXE и соответствует архитектуре событий, действующей в проекте.*
+
+
+==============================================================================
+EVENT PYTHON MODULE INVENTORY
+==============================================================================
+events\__init__.py
+events\catalog.py
+events\contracts.py
+events\diagnostics.py
+events\effects.py
+events\evt003_penalties.py
+events\evt003_presentation.py
+events\evt003_runtime.py
+events\evt004_dragon.py
+events\evt004_presentation.py
+events\evt004_runtime.py
+events\legacy_lifecycle.py
+events\manager.py
+events\resources.py
+events\secret_access.py
+events\signals.py
