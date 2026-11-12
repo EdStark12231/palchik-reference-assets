@@ -1,0 +1,933 @@
+FILE: main.py
+SHA256: f0d7033c4afe18f23c836f6cd7adcdb0167da5fef3aae4bb40f37b07834f3413
+TOTAL LINES: 4663
+EXTRACTED CONTEXT:
+
+================================================================================
+LINES 1-62
+================================================================================
+    1: import sys
+    2: import pygame
+    3: import os
+    4: import random
+    5: import moderngl
+    6: import array
+    7: import time
+    8: import logging
+    9: import subprocess
+   10: from pathlib import Path
+   11: from localization import TRANSLATIONS
+   12: from events.catalog import load_default_catalog
+   13: from events.manager import EventManager
+   14: from events.effects import EffectRegistry
+   15: from events.legacy_lifecycle import LegacyEventLifecycle
+   16: from events.evt003_runtime import EVT003Runtime
+   17: from events.evt003_presentation import EVT003Presentation
+   18: from events.diagnostics import configure_app_logging, install_uncaught_exception_hook, log_exception, get_recent_log_entries
+   19: from typewriter import CharacterTypewriter
+   20: from events.secret_access import (
+   21:     EVENT_COLLECTION_ITEMS, SECRET_ACCESS_CODE, SECRET_ACCESS_CODE_LENGTH,
+   22:     is_valid_numeric_code, normalize_event_collection_progress,
+   23:     mark_event_found, mark_event_completed, SecretPromptSession,
+   24:     choose_event_collection_icon_rect,
+   25: )
+   26: from events.adventure_road_runtime import AdventureRoadRuntime
+   27: from events.adventure_road_presentation import AdventureRoadPresentation
+   28: 
+   29: 
+   30: class Profiler:
+   31:     """╤шёЄхьр ёсюЁр ьхЄЁшъ яЁюшчтюфшЄхы№эюёЄш."""
+   32:     def __init__(self):
+   33:         self.recording = False
+   34:         self.start_time = 0
+   35:         self.duration = 10.0  # ёхъєэф
+   36:         self.fps_values = []
+   37:         self.frame_times = []
+   38:         self.cpu_values = []
+   39:         self.ram_values = []
+   40:         self.scenario = "unknown"
+   41:     
+   42:     def start(self, duration=10.0, scenario="unknown"):
+   43:         self.recording = True
+   44:         self.start_time = time.time()
+   45:         self.duration = duration
+   46:         self.scenario = scenario
+   47:         self.fps_values = []
+   48:         self.frame_times = []
+   49:         self.cpu_values = []
+   50:         self.ram_values = []
+   51:     
+   52:     def tick(self, fps, dt):
+   53:         if not self.recording:
+   54:             return
+   55:         elapsed = time.time() - self.start_time
+   56:         self.fps_values.append(fps)
+   57:         self.frame_times.append(dt)
+   58:         if PSUTIL_AVAILABLE:
+   59:             self.cpu_values.append(psutil.cpu_percent(interval=0.0))
+   60:             mem = psutil.virtual_memory()
+   61:             self.ram_values.append(mem.percent)
+   62:         if elapsed >= self.duration:
+
+================================================================================
+LINES 360-436
+================================================================================
+  360:         self.secret_input_value = ""
+  361:         self.secret_input_started_at = 0.0
+  362:         self.secret_input_last_digit_at = 0.0
+  363:         self.secret_input_error_until = 0.0
+  364:         self.secret_input_rect = None
+  365: 
+  366:         self.audio_box = AudioController()
+  367:         self._roach_scuttle_playing = False
+  368:         self.settings_box = SettingsController()
+  369:         self.settings_box.audio_system = self.audio_box
+  370:         self.settings_box.current_lang = self.current_lang
+  371: 
+  372:         self.menu_cursor = CustomCursorManager()
+  373:         self.settings_box.menu_cursor = self.menu_cursor
+  374: 
+  375:         w, h = self.screen.get_size()
+  376:         self.game_view = GameControllerPygame(w, h)
+  377: 
+  378:         self.game_logic = GameLogic(
+  379:             ui_update_callback=self._on_game_ui_update,
+  380:             limit_reached_callback=self._on_limit_reached,
+  381:             clean_finished_callback=self._on_clean_finished,
+  382:             translations=TRANSLATIONS
+  383:         )
+  384:         # EVT_003 is registered and controlled by the existing PALCHIK EventManager.
+  385:         self.evt003_runtime = EVT003Runtime(self.event_manager, self.game_logic)
+  386:         self.evt003_presentation = EVT003Presentation(self.game_view)
+  387:         self.evt003_state = None
+  388:         self.evt003_instance_id = None
+  389:         self.evt003_started_at = 0.0
+  390:         self.evt003_gameover_started_at = 0.0
+  391:         self.evt003_typewriter_count = 0
+  392:         self.evt003_typewriter_interval = self.evt003_runtime.typewriter_interval
+  393: 
+  394:         # EVT_004 Adventure Road runtime and presentation
+  395:         self.evt004_runtime = None
+  396:         self.evt004_presentation = None
+  397:         self.evt004_instance_id = None
+  398:         self.evt004_started_at = 0.0
+  399:         self.evt004_audio_channel = None
+  400:         self.evt004_audio_config = dict((self.event_catalog.configuration("EVT_004_ADVENTURE_ROAD") or {}).get("audio", {}))
+  401:         self._evt004_wing_loop_active = False
+  402: 
+  403:         self.evt003_typewriter = CharacterTypewriter(self.evt003_typewriter_interval)
+  404:         self.evt003_is_sandbox = False
+  405:         self.evt003_dialog_payload = None
+  406:         self.evt003_ok_rect = None
+  407:         self.evt003_scheduled_phase = None
+  408:         self.evt003_next_check_at = 0.0
+  409:         self._evt003_schedule_phase(self.game_logic.get_phase())
+  410:         # Load saved player name into game logic
+  411:         if self.player_name:
+  412:             self.game_logic.player_name = self.player_name
+  413:             self.game_logic.name_verified = True
+  414: 
+  415:         self.hint_alpha = 0.0
+  416:         self.hint_visible = False
+  417:         self.last_blink_time = pygame.time.get_ticks()
+  418:         self.blink_interval = 600
+  419:         self.start_delay = 5000
+  420:         self.menu_start_time = pygame.time.get_ticks()
+  421: 
+  422:         self.game_seconds_left = 30
+  423:         self.game_current_phrase = "╬ ╩└╩..."
+  424:         self.game_blink_visible = True
+  425:         self.game_last_blink_time = pygame.time.get_ticks()
+  426:         self.typed_phrase = ""
+  427:         self.final_phase_triggered = False
+  428:         self.fake_crash_start = 0
+  429:         self.crash_stage = 0
+  430: 
+  431:         self.notification_text = ""
+  432:         self.notification_timer = 0
+  433:         self.menu_jitter_offset = 0
+  434: 
+  435:         self.easter_egg_phrase = ""
+  436:         self.easter_egg_timer = 0
+
+================================================================================
+LINES 1330-1728
+================================================================================
+ 1330:             or logic.lore_text_viewer_open
+ 1331:             or logic.lore_image_viewer_open
+ 1332:         )
+ 1333:         visible = any(
+ 1334:             item.get("visible", True) or item.get("spawn_delay", 0.0) <= 0.0
+ 1335:             for item in logic.roach_entities
+ 1336:         )
+ 1337:         should_play = logic.roach_attack_active and visible and not blocked
+ 1338:         if should_play and not self._roach_scuttle_playing:
+ 1339:             self._roach_scuttle_playing = self.audio_box.play_roach_attack("scuttle_loop")
+ 1340:         elif not should_play and self._roach_scuttle_playing:
+ 1341:             self.audio_box.stop_roach_scuttle()
+ 1342:             self._roach_scuttle_playing = False
+ 1343: 
+ 1344:     def _stop_roach_audio(self):
+ 1345:         """Stop every dedicated EVT_001 channel when the event/session is stopped."""
+ 1346:         self.audio_box.stop_roach_attack_audio()
+ 1347:         self._roach_scuttle_playing = False
+ 1348: 
+ 1349:     def _log_exception(self, context, exc):
+ 1350:         """Record caught exceptions both in logs/palchik.log and the admin log tab."""
+ 1351:         log_exception(self.app_logger, str(context), exc)
+ 1352: 
+ 1353:     def _open_admin_log_file(self):
+ 1354:         self.log_file_path.parent.mkdir(parents=True, exist_ok=True)
+ 1355:         self.log_file_path.touch(exist_ok=True)
+ 1356:         try:
+ 1357:             if os.name == "nt":
+ 1358:                 os.startfile(str(self.log_file_path))
+ 1359:             else:
+ 1360:                 subprocess.Popen(["xdg-open", str(self.log_file_path)])
+ 1361:         except Exception as exc:
+ 1362:             self._log_exception("ADMIN_LOG_OPEN", exc)
+ 1363:             self._show_notification("═х єфрыюё№ юЄъЁ√Є№ Їрщы цєЁэрыр. ╤ь. яєЄ№ т ярэхыш.", duration=2500)
+ 1364: 
+ 1365:     def _start_evt004_audio(self):
+ 1366:         """Start EVT004's configured music through pygame.mixer.music."""
+ 1367:         self.audio_box.stop_music()
+ 1368:         music_path = self.evt004_audio_config.get("music")
+ 1369:         if not music_path:
+ 1370:             self.app_logger.warning("EVT_004 has no music path in its event config")
+ 1371:             return False
+ 1372:         started = self.audio_box.play_event_music(music_path, volume=0.30, label="evt004")
+ 1373:         if not started:
+ 1374:             self.app_logger.warning("EVT_004 theme could not be started: %s", music_path)
+ 1375:         return started
+ 1376: 
+ 1377:     def _route_evt004_audio_events(self, events):
+ 1378:         """Route runtime state transitions to dedicated EVT004 sound channels."""
+ 1379:         sound_paths = self.evt004_audio_config.get("events", {})
+ 1380:         for event_key in events:
+ 1381:             if event_key == "wing_flap_loop_stop":
+ 1382:                 self.audio_box.stop_evt004_sfx("wing_flap_loop")
+ 1383:                 self._evt004_wing_loop_active = False
+ 1384:                 continue
+ 1385:             loop = event_key == "wing_flap_loop_start"
+ 1386:             sound_key = "wing_flap_loop" if loop else event_key
+ 1387:             sound_path = sound_paths.get(sound_key)
+ 1388:             if not sound_path:
+ 1389:                 self.app_logger.warning("EVT_004 audio key missing from config: %s", sound_key)
+ 1390:                 continue
+ 1391:             self.audio_box.play_evt004_sfx(
+ 1392:                 sound_path, event_key=sound_key, loop=loop,
+ 1393:                 volume=0.42 if loop else 0.78,
+ 1394:             )
+ 1395:             if loop:
+ 1396:                 self._evt004_wing_loop_active = True
+ 1397: 
+ 1398:     def _stop_evt004_audio(self):
+ 1399:         """Stop only audio owned by EVT004."""
+ 1400:         self.audio_box.stop_evt004_audio()
+ 1401:         self.audio_box.stop_event_music(label="evt004")
+ 1402:         self._evt004_wing_loop_active = False
+ 1403: 
+ 1404:     def _initialize_evt004_instance(self, instance):
+ 1405:         """Build and start EVT004; release EventManager claims if setup fails."""
+ 1406:         self.evt004_instance_id = instance.instance_id
+ 1407:         self.evt004_started_at = time.monotonic()
+ 1408:         try:
+ 1409:             surface_size = (self.game_view.width, self.game_view.height)
+ 1410:             self.evt004_presentation = AdventureRoadPresentation(self.game_view)
+ 1411:             self.evt004_runtime = self.evt004_presentation.build_runtime(
+ 1412:                 surface_size, Path(__file__).resolve().parent, dragon_hp=8,
+ 1413:             )
+ 1414:             self.evt004_runtime.start()
+ 1415:             self._start_evt004_audio()
+ 1416:             self._route_evt004_audio_events(self.evt004_runtime.drain_audio_events())
+ 1417:             return True
+ 1418:         except Exception:
+ 1419:             self.app_logger.exception("EVT_004 initialization failed")
+ 1420:             self._stop_evt004_audio()
+ 1421:             try:
+ 1422:                 self.event_manager.finish(
+ 1423:                     instance.instance_id, cancelled=True, reason="INITIALIZATION_FAILED",
+ 1424:                 )
+ 1425:             except Exception:
+ 1426:                 self.app_logger.exception("EVT_004 failed to release startup resources")
+ 1427:             self.evt004_runtime = None
+ 1428:             self.evt004_presentation = None
+ 1429:             self.evt004_instance_id = None
+ 1430:             self.evt004_started_at = 0.0
+ 1431:             self._show_notification("EVT_004: ╬╪╚┴╩└ ╟└╧╙╤╩└ ╖ ╤╠. ╞╙╨═└╦", duration=2500)
+ 1432:             return False
+ 1433: 
+ 1434:     def _start_evt004_from_secret_code(self):
+ 1435:         """Launch EVT_004 from the independent secret trigger code 111111."""
+ 1436:         if self.evt004_runtime is not None and self.evt004_runtime.running:
+ 1437:             self._show_notification("EVT_004 ╙╞┼ ┬█╧╬╦═▀┼╥╤▀", duration=1500)
+ 1438:             return False
+ 1439:         if not self._admin_phase_controls_available():
+ 1440:             self._show_notification("EVT_004 ─╬╤╥╙╧┼═ ╥╬╦▄╩╬ ┬ ╚├╨╬┬╬╔ ╤╓┼═┼", duration=1800)
+ 1441:             return False
+ 1442:         try:
+ 1443:             instance = self.event_manager.begin("EVT_004_ADVENTURE_ROAD", {
+ 1444:                 "source": "SECRET_CODE",
+ 1445:                 "trigger_code": "111111",
+ 1446:             })
+ 1447:         except RuntimeError as exc:
+ 1448:             self._show_notification(f"EVT_004 ┴╦╬╩╚╨╬┬└═: {exc}", duration=2000)
+ 1449:             return False
+ 1450:         if not self._initialize_evt004_instance(instance):
+ 1451:             return False
+ 1452:         self._show_notification("EVT_004: ─╬╨╬├└ ╧╨╚╩╦▐╫┼═╚╔ ═└╫└╥└", duration=2000)
+ 1453:         return True
+ 1454: 
+ 1455:     def _start_evt004_admin(self):
+ 1456:         """Launch EVT_004 from admin panel without writing player progress."""
+ 1457:         if not self._admin_phase_controls_available():
+ 1458:             self._show_notification("EVT_004 ─╬╤╥╙╧┼═ ╥╬╦▄╩╬ ┬ ╚├╨╬┬╬╔ ╤╓┼═┼", duration=1800)
+ 1459:             return False
+ 1460:         if self.evt004_runtime is not None and self.evt004_runtime.running:
+ 1461:             self._show_notification("EVT_004 ╙╞┼ ┬█╧╬╦═▀┼╥╤▀", duration=1500)
+ 1462:             return False
+ 1463:         try:
+ 1464:             instance = self.event_manager.begin("EVT_004_ADVENTURE_ROAD", {
+ 1465:                 "source": "ADMIN",
+ 1466:                 "admin_sandbox": True,
+ 1467:             })
+ 1468:         except RuntimeError as exc:
+ 1469:             self._show_notification(f"EVT_004 ┴╦╬╩╚╨╬┬└═: {exc}", duration=2000)
+ 1470:             return False
+ 1471:         if not self._initialize_evt004_instance(instance):
+ 1472:             return False
+ 1473:         self._show_notification("EVT_004: └─╠╚═-╥┼╤╥ ╟└╧╙┘┼═", duration=2000)
+ 1474:         return True
+ 1475: 
+ 1476:     def _finish_evt004(self, cancelled=False, failed=False, reason=None):
+ 1477:         """Finish EVT_004: release resources, save outcome, restore audio/game state."""
+ 1478:         if self.evt004_instance_id is None:
+ 1479:             return
+ 1480:         instance_id = self.evt004_instance_id
+ 1481:         outcome = None
+ 1482:         if self.evt004_runtime is not None:
+ 1483:             result = self.evt004_runtime.result()
+ 1484:             if result is not None:
+ 1485:                 outcome = result.result
+ 1486:         if cancelled and self.evt004_runtime is not None and self.evt004_runtime.running:
+ 1487:             self.evt004_runtime.cancel(reason or "HOST_CANCELLED")
+ 1488:             result = self.evt004_runtime.result()
+ 1489:             if result is not None:
+ 1490:                 outcome = result.result
+ 1491:         if cancelled and outcome is None:
+ 1492:             outcome = "CANCELLED"
+ 1493:         if failed or outcome == "DEFEAT":
+ 1494:             event_status_failed = True
+ 1495:             event_status_cancelled = False
+ 1496:         elif cancelled or outcome == "CANCELLED":
+ 1497:             event_status_failed = False
+ 1498:             event_status_cancelled = True
+ 1499:         else:
+ 1500:             event_status_failed = False
+ 1501:             event_status_cancelled = False
+ 1502:         try:
+ 1503:             instance = self.event_manager.finish(
+ 1504:                 instance_id,
+ 1505:                 cancelled=event_status_cancelled,
+ 1506:                 failed=event_status_failed,
+ 1507:                 reason=reason,
+ 1508:             )
+ 1509:         except KeyError:
+ 1510:             instance = None
+ 1511:         is_admin_sandbox = False
+ 1512:         if self.evt004_runtime is not None:
+ 1513:             inst = self.event_manager.instances.get(instance_id)
+ 1514:             if inst is not None:
+ 1515:                 is_admin_sandbox = bool(inst.data.get("admin_sandbox", False))
+ 1516:         if not is_admin_sandbox and outcome is not None:
+ 1517:             state = {
+ 1518:                 "outcome": outcome,
+ 1519:                 "reason": reason or "",
+ 1520:                 "dragon_hp": self.evt004_runtime.dragon_hp if self.evt004_runtime else 0,
+ 1521:                 "dragon_max_hp": self.evt004_runtime.dragon_hp_max if self.evt004_runtime else 0,
+ 1522:                 "destroyed_targets": self.evt004_runtime.destroyed_targets if self.evt004_runtime else 0,
+ 1523:                 "total_targets": self.evt004_runtime.total_targets if self.evt004_runtime else 0,
+ 1524:                 "finished_at": time.monotonic(),
+ 1525:             }
+ 1526:             try:
+ 1527:                 SaveManager.save_event_state("EVT_004_ADVENTURE_ROAD", state)
+ 1528:             except Exception:
+ 1529:                 self.app_logger.exception("EVT_004 save state failed")
+ 1530:             if outcome == "VICTORY":
+ 1531:                 try:
+ 1532:                     from events.secret_access import mark_event_completed, normalize_event_collection_progress
+ 1533:                     data = SaveManager._read_raw_game_data()
+ 1534:                     progress = normalize_event_collection_progress(data.get("event_collection_progress", {}))
+ 1535:                     progress = mark_event_completed(progress, "road_of_adventures")
+ 1536:                     SaveManager.save_event_collection_state(progress=progress)
+ 1537:                 except Exception:
+ 1538:                     self.app_logger.exception("EVT_004 collection save failed")
+ 1539:             elif outcome == "DEFEAT":
+ 1540:                 try:
+ 1541:                     from events.secret_access import mark_event_found, normalize_event_collection_progress
+ 1542:                     data = SaveManager._read_raw_game_data()
+ 1543:                     progress = normalize_event_collection_progress(data.get("event_collection_progress", {}))
+ 1544:                     progress = mark_event_found(progress, "road_of_adventures")
+ 1545:                     SaveManager.save_event_collection_state(progress=progress)
+ 1546:                 except Exception:
+ 1547:                     self.app_logger.exception("EVT_004 defeat collection save failed")
+ 1548:         try:
+ 1549:             self._stop_evt004_audio()
+ 1550:             self.audio_box.play_game_music()
+ 1551:         except Exception:
+ 1552:             self.app_logger.exception("EVT_004 audio restore failed")
+ 1553:         self.evt004_runtime = None
+ 1554:         self.evt004_presentation = None
+ 1555:         self.evt004_instance_id = None
+ 1556:         self.evt004_started_at = 0.0
+ 1557:         if outcome == "VICTORY":
+ 1558:             self._show_notification("EVT_004: ╧╬┴┼─└ Ч ─╨└╩╬═ ╧╬┴┼╞─┼═", duration=2500)
+ 1559:         elif outcome == "DEFEAT":
+ 1560:             self._show_notification("EVT_004: ╧╬╨└╞┼═╚┼ Ч ╓┼╦╚ ╙═╚╫╥╬╞┼═█", duration=2500)
+ 1561:         elif outcome == "CANCELLED":
+ 1562:             self._show_notification("EVT_004: ╬╥╠┼═┼═╬", duration=2000)
+ 1563:         self.secret_prompt_session.retry_after_event()
+ 1564: 
+ 1565:     def _update_evt004(self, dt):
+ 1566:         """Update EVT004 and route state-transition audio; return active state."""
+ 1567:         runtime = self.evt004_runtime
+ 1568:         if runtime is None:
+ 1569:             return False
+ 1570:         result = runtime.update(dt) if runtime.running else runtime.result()
+ 1571:         self._route_evt004_audio_events(runtime.drain_audio_events())
+ 1572:         if result is not None:
+ 1573:             if result.result == "VICTORY":
+ 1574:                 self._finish_evt004(failed=False, cancelled=False, reason="DRAGON_DEFEATED")
+ 1575:             elif result.result == "DEFEAT":
+ 1576:                 self._finish_evt004(failed=True, cancelled=False, reason="ALL_INTERFACE_TARGETS_DESTROYED")
+ 1577:             elif result.result == "CANCELLED":
+ 1578:                 self._finish_evt004(cancelled=True, reason=result.reason or "HOST_CANCELLED")
+ 1579:             return False
+ 1580:         return runtime.running
+ 1581: 
+ 1582:     def _draw_evt004(self, surface):
+ 1583:         """Draw EVT_004 overlay over the game surface."""
+ 1584:         if self.evt004_runtime is None or self.evt004_presentation is None:
+ 1585:             return
+ 1586:         if not self.evt004_runtime.running:
+ 1587:             return
+ 1588:         snapshot = surface.copy()
+ 1589:         self.evt004_presentation.draw(surface, self.evt004_runtime, snapshot)
+ 1590: 
+ 1591:     def _handle_evt004_click(self, pos):
+ 1592:         """Route mouse click to EVT_004 runtime. Returns True if consumed."""
+ 1593:         if self.evt004_runtime is None or not self.evt004_runtime.running:
+ 1594:             return False
+ 1595:         self.evt004_runtime.player_attack(pos)
+ 1596:         return True
+ 1597: 
+ 1598:     def _admin_stop_event(self, event_id):
+ 1599:         if event_id == "EVT_001_ROACH_ATTACK":
+ 1600:             self._cancel_managed_roach_attack(reason="ADMIN_STOP")
+ 1601:             self.admin_event_inspect_text = self._managed_event_inspect(
+ 1602:                 event_id, self.game_logic.inspect_roach_attack()
+ 1603:             )
+ 1604:         elif event_id == "EVT_002_WORD_SHOCK":
+ 1605:             self._cancel_managed_word_shock(reason="ADMIN_STOP")
+ 1606:             self.admin_event_inspect_text = self._managed_event_inspect(
+ 1607:                 event_id, self.game_logic.inspect_word_shock()
+ 1608:             )
+ 1609:         else:
+ 1610:             return
+ 1611:         self.admin_panel_tab = "events"
+ 1612:         self._show_notification(event_id + ": STOPPED", duration=1500)
+ 1613: 
+ 1614:     def _admin_reset_event(self, event_id):
+ 1615:         if event_id == "EVT_001_ROACH_ATTACK":
+ 1616:             self._cancel_managed_roach_attack(reset=True, reason="ADMIN_RESET")
+ 1617:             self.admin_event_inspect_text = self._managed_event_inspect(
+ 1618:                 event_id, self.game_logic.inspect_roach_attack()
+ 1619:             )
+ 1620:         elif event_id == "EVT_002_WORD_SHOCK":
+ 1621:             self._cancel_managed_word_shock(reset=True, reason="ADMIN_RESET")
+ 1622:             self.admin_event_inspect_text = self._managed_event_inspect(
+ 1623:                 event_id, self.game_logic.inspect_word_shock()
+ 1624:             )
+ 1625:         else:
+ 1626:             return
+ 1627:         self.admin_panel_tab = "events"
+ 1628:         self._show_notification(event_id + ": RESET", duration=1500)
+ 1629: 
+ 1630:     def _admin_inspect_event(self, event_id):
+ 1631:         if event_id == "EVT_001_ROACH_ATTACK":
+ 1632:             self.admin_event_inspect_text = self._managed_event_inspect(
+ 1633:                 event_id, self.game_logic.inspect_roach_attack()
+ 1634:             )
+ 1635:         elif event_id == "EVT_002_WORD_SHOCK":
+ 1636:             self.admin_event_inspect_text = self._managed_event_inspect(
+ 1637:                 event_id, self.game_logic.inspect_word_shock()
+ 1638:             )
+ 1639: 
+ 1640:     def _admin_phase_controls_available(self):
+ 1641:         return (
+ 1642:             self.current_screen == "game"
+ 1643:             and self.crash_stage == 0
+ 1644:             and not self.intro_slides_active
+ 1645:             and not self.name_entry_active
+ 1646:             and not self.channel_switch_active
+ 1647:             and not (self.evt004_runtime is not None and self.evt004_runtime.running)
+ 1648:         )
+ 1649: 
+ 1650:     def _admin_set_phase(self, clicks):
+ 1651:         if not self._admin_phase_controls_available():
+ 1652:             return
+ 1653:         # Phase jumps clear transient state from the previous phase, but keep score.
+ 1654:         if self.game_logic.word_shock_active or self.event_lifecycle.is_tracked("EVT_002_WORD_SHOCK"):
+ 1655:             self._cancel_managed_word_shock(reason="PHASE_RESET")
+ 1656:         if self.game_logic.roach_attack_active or self.event_lifecycle.is_tracked("EVT_001_ROACH_ATTACK"):
+ 1657:             self._cancel_managed_roach_attack(reason="PHASE_RESET")
+ 1658:         self.game_logic.reset_session(reset_progress=False)
+ 1659:         self.game_logic.total_clicks = int(clicks)
+ 1660:         self.game_logic._sync_to_disk()
+ 1661:         self.final_phase_triggered = False
+ 1662:         self.crash_stage = 0
+ 1663:         self.fake_crash_start = 0
+ 1664:         self.game_view.recalculate_layout()
+ 1665:         self._show_notification(f"ADMIN: phase position {clicks} clicks", duration=1800)
+ 1666:         self._on_limit_reached()
+ 1667: 
+ 1668:     def _admin_event_registry(self):
+ 1669:         """Expose event metadata from the central catalog to the existing admin UI."""
+ 1670:         return {
+ 1671:             definition.event_id: {
+ 1672:                 "label": definition.label,
+ 1673:                 "description": definition.description,
+ 1674:             }
+ 1675:             for definition in self.event_catalog.all(enabled_only=True)
+ 1676:             if definition.metadata.get("admin_supported", False)
+ 1677:         }
+ 1678: 
+ 1679:     def _admin_trigger_event(self, event_id):
+ 1680:         if event_id not in self._admin_event_registry():
+ 1681:             self._show_notification("═┼┬┼╨═█╔ ID ╤╬┴█╥╚▀.", duration=1600)
+ 1682:             return
+ 1683:         if not self._admin_phase_controls_available():
+ 1684:             self._show_notification("╤╬┴█╥╚┼ ═┼─╬╤╥╙╧═╬ ┬ ▌╥╬╥ ╠╬╠┼═╥.", duration=1800)
+ 1685:             return
+ 1686:         if event_id == "EVT_001_ROACH_ATTACK":
+ 1687:             started = self._start_roach_attack(launch_source="ADMIN")
+ 1688:         elif event_id == "EVT_002_WORD_SHOCK":
+ 1689:             started = self._start_word_shock(launch_source="ADMIN")
+ 1690:         elif event_id == "EVT_003_PLEASE_DONT_TOUCH":
+ 1691:             started = self._admin_trigger_evt003()
+ 1692:         elif event_id == "EVT_004_ADVENTURE_ROAD":
+ 1693:             started = self._start_evt004_admin()
+ 1694:         else:
+ 1695:             self._show_notification("▌╥╬ ╤╬┴█╥╚┼ ═┼ ═└╤╥╨╬┼═╬ ═└ └─╠╚═ ╤╩╨╚╧╥.", duration=1800)
+ 1696:             return
+ 1697:         if started:
+ 1698:             self.admin_panel_tab = "events"
+ 1699:             self.admin_panel_open = False
+ 1700:             self._show_notification(event_id + ": TRIGGERED", duration=1800)
+ 1701: 
+ 1702:     def _evt003_admin_block_reason(self):
+ 1703:         logic = self.game_logic
+ 1704:         blocked = (
+ 1705:             logic.word_shock_active or logic.roach_attack_active
+ 1706:             or logic.minigame_active or logic.timer_active or logic.sprite_active
+ 1707:             or logic.chase_planet_active or logic.fade_screen_active
+ 1708:             or logic.code_window_open or logic.lore_window_open
+ 1709:             or logic.lore_text_viewer_open or logic.lore_image_viewer_open
+ 1710:             or self.settings_box.is_open
+ 1711:         )
+ 1712:         return "GAMEPLAY_MODE_BUSY" if blocked else None
+ 1713: 
+ 1714:     def _start_evt003_admin_flow(self, phase, *, sandbox):
+ 1715:         if not self._admin_phase_controls_available():
+ 1716:             self._show_notification("EVT_003 фюёЄєяхэ Єюы№ъю т шуЁютющ ёЎхэх.", duration=1800)
+ 1717:             return False
+ 1718:         if self.evt003_state is not None:
+ 1719:             self._show_notification("EVT_003 єцх т√яюыэ хЄё .", duration=1800)
+ 1720:             return False
+ 1721:         reason = self._evt003_admin_block_reason()
+ 1722:         if reason:
+ 1723:             self._show_notification("EVT_003 эхы№ч  чряєёЄшЄ№ яютхЁї фЁєуюую шуЁютюую Ёхцшьр.", duration=2200)
+ 1724:             return False
+ 1725:         allowed, reason = self.evt003_runtime.can_start(phase, sandbox=sandbox)
+ 1726:         if not allowed:
+ 1727:             message = (
+ 1728:                 "EVT_003 єцх шёяюы№чютры Ёхры№эє■ яюя√Єъє т ¤Єющ Їрчх."
+
+================================================================================
+LINES 1784-1854
+================================================================================
+ 1784:         self.secret_input_closing = False
+ 1785:         self.secret_input_closing_started_at = 0.0
+ 1786:         self.secret_input_open = True
+ 1787:         return True
+ 1788: 
+ 1789:     def _cancel_secret_input(self):
+ 1790:         """Close the dialog with its existing animation; do not alter unlock state."""
+ 1791:         if not self.secret_input_open or self.secret_input_closing:
+ 1792:             return False
+ 1793:         self.secret_input_closing = True
+ 1794:         self.secret_input_closing_started_at = time.monotonic()
+ 1795:         self.secret_input_value = ""
+ 1796:         self.secret_prompt_session.retry_after_cancel()
+ 1797:         return True
+ 1798: 
+ 1799:     def _confirm_secret_input(self):
+ 1800:         """Confirm the PIN from the dialog's OK button."""
+ 1801:         if len(self.secret_input_value) != SECRET_ACCESS_CODE_LENGTH:
+ 1802:             self.secret_input_error_until = time.monotonic() + 0.55
+ 1803:             self._show_notification("┬┬┼─╚╥┼ 6 ╓╚╘╨", duration=1500)
+ 1804:             return False
+ 1805:         return self._submit_secret_input()
+ 1806: 
+ 1807:     def _submit_secret_input(self, candidate=None):
+ 1808:         """Route 111111 to EVT_004 and keep 172314 as collection unlock only."""
+ 1809:         attempt = self.secret_input_value if candidate is None else str(candidate)
+ 1810:         # is_valid_numeric_code intentionally validates only the legacy collection PIN.
+ 1811:         # EVT_004 has its own independent trigger code and must not replace it.
+ 1812:         if attempt != "111111" and not is_valid_numeric_code(attempt):
+ 1813:             self.secret_input_value = ""
+ 1814:             self.secret_input_error_until = time.monotonic() + 0.75
+ 1815:             self._show_notification("═┼┬┼╨═█╔ ╩╬─", duration=1800)
+ 1816:             return False
+ 1817: 
+ 1818:         if attempt == "111111":
+ 1819:             if not self._start_evt004_from_secret_code():
+ 1820:                 self.secret_input_error_until = time.monotonic() + 0.75
+ 1821:                 return False
+ 1822:             self.secret_prompt_session.mark_completed(reason="event")
+ 1823:             self.secret_input_closing = True
+ 1824:             self.secret_input_closing_started_at = time.monotonic()
+ 1825:             self.secret_input_value = ""
+ 1826:             self.event_collection_open = False
+ 1827:             self.event_collection_closing = False
+ 1828:             self.event_collection_window_rect = None
+ 1829:             self.event_collection_close_rect = None
+ 1830:             return True
+ 1831: 
+ 1832:         try:
+ 1833:             SaveManager.save_event_collection_state(
+ 1834:                 unlocked=True, progress=self.event_collection_progress,
+ 1835:             )
+ 1836:         except Exception:
+ 1837:             self.app_logger.exception("═х єфрыюё№ ёюїЁрэшЄ№ ЁрчсыюъшЁютъє ъюыыхъЎшш ёюс√Єшщ")
+ 1838:             self.secret_input_error_until = time.monotonic() + 0.75
+ 1839:             self._show_notification("╬╪╚┴╩└ ╤╬╒╨└═┼═╚▀ ─╬╤╥╙╧└", duration=2200)
+ 1840:             return False
+ 1841: 
+ 1842:         self.event_collection_unlocked = True
+ 1843:         self.secret_prompt_session.mark_completed(reason="collection")
+ 1844:         self.secret_input_closing = True
+ 1845:         self.secret_input_closing_started_at = time.monotonic()
+ 1846:         self.secret_input_value = ""
+ 1847:         self.event_collection_open = False
+ 1848:         self.event_collection_closing = False
+ 1849:         self.event_collection_window_rect = None
+ 1850:         self.event_collection_close_rect = None
+ 1851:         self._show_notification("╩╬─ ╧╨╚═▀╥ ╖ ╩╬╦╦┼╩╓╚▀ ╤╬┴█╥╚╔ ╬╥╩╨█╥└", duration=2600)
+ 1852:         return True
+ 1853: 
+ 1854:     def _handle_secret_input_key(self, event):
+
+================================================================================
+LINES 2874-2946
+================================================================================
+ 2874:         if not self.name_input_scene:
+ 2875:             return
+ 2876:         if event.type == pygame.KEYDOWN:
+ 2877:             result = self.name_input_scene.handle_keyboard(event)
+ 2878:             if result == "QUIT":
+ 2879:                 self.name_entry_active = False
+ 2880:                 self.name_input_scene = None
+ 2881:                 self.current_screen = "menu"
+ 2882:                 self.audio_box.play_menu_music()
+ 2883:             elif result == "DONE":
+ 2884:                 self._commit_player_name(self.name_input_scene.buffer)
+ 2885:         elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+ 2886:             self.menu_cursor.trigger_click_animation()
+ 2887:             w, h = self.screen.get_size()
+ 2888:             mouse_pos = event.pos
+ 2889:             tex_w, tex_h = self.screen_texture.size
+ 2890:             pos_x = int(mouse_pos[0] * (tex_w / w))
+ 2891:             pos_y = int(mouse_pos[1] * (tex_h / h))
+ 2892:             result = self.name_input_scene.handle_mouse((pos_x, pos_y))
+ 2893:             if result == "QUIT":
+ 2894:                 self.name_entry_active = False
+ 2895:                 self.name_input_scene = None
+ 2896:                 self.current_screen = "menu"
+ 2897:                 self.audio_box.play_menu_music()
+ 2898:             elif result == "DONE":
+ 2899:                 self._commit_player_name(self.name_input_scene.buffer)
+ 2900:         elif event.type == pygame.MOUSEMOTION:
+ 2901:             w, h = self.screen.get_size()
+ 2902:             mouse_pos = event.pos
+ 2903:             tex_w, tex_h = self.screen_texture.size
+ 2904:             pos_x = int(mouse_pos[0] * (tex_w / w))
+ 2905:             pos_y = int(mouse_pos[1] * (tex_h / h))
+ 2906:             self.name_input_scene.get_hover((pos_x, pos_y))
+ 2907: 
+ 2908:     def _handle_game_events(self, event):
+ 2909:         if (self.evt004_runtime is not None and self.evt004_runtime.running
+ 2910:                 and event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE):
+ 2911:             self._finish_evt004(cancelled=True, reason="PLAYER_CANCELLED")
+ 2912:             return
+ 2913:         if self.game_logic.word_shock_active and event.type != pygame.VIDEORESIZE:
+ 2914:             self._handle_word_shock_input(event)
+ 2915:             return
+ 2916:         if self.secret_input_open and event.type != pygame.VIDEORESIZE:
+ 2917:             if event.type == pygame.KEYDOWN:
+ 2918:                 self._handle_secret_input_key(event)
+ 2919:             elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+ 2920:                 screen_w, screen_h = self.screen.get_size()
+ 2921:                 tex_w, tex_h = self.screen_texture.size
+ 2922:                 mouse_pos = (
+ 2923:                     int(event.pos[0] * tex_w / max(1, screen_w)),
+ 2924:                     int(event.pos[1] * tex_h / max(1, screen_h)),
+ 2925:                 )
+ 2926:                 close_rect = getattr(self, "secret_input_close_rect", None)
+ 2927:                 cancel_rect = getattr(self, "secret_input_cancel_rect", None)
+ 2928:                 ok_rect = getattr(self, "secret_input_ok_rect", None)
+ 2929:                 if close_rect and close_rect.collidepoint(mouse_pos):
+ 2930:                     self._cancel_secret_input()
+ 2931:                 elif cancel_rect and cancel_rect.collidepoint(mouse_pos):
+ 2932:                     self._cancel_secret_input()
+ 2933:                 elif ok_rect and ok_rect.collidepoint(mouse_pos):
+ 2934:                     self._confirm_secret_input()
+ 2935:             return
+ 2936:         if self.event_collection_open and event.type == pygame.KEYDOWN:
+ 2937:             if event.key == pygame.K_ESCAPE:
+ 2938:                 self._close_event_collection()
+ 2939:             return
+ 2940:         if event.type == pygame.VIDEORESIZE:
+ 2941:             self.screen = pygame.display.set_mode((event.w, event.h), pygame.FULLSCREEN | pygame.DOUBLEBUF | pygame.OPENGL)
+ 2942:             self._setup_menu_hitboxes()
+ 2943:             self.game_view.width, self.game_view.height = event.w, event.h
+ 2944:             self.game_view.recalculate_layout()
+ 2945:         elif event.type == pygame.MOUSEBUTTONUP and event.button == 1:
+ 2946:             self.game_logic.timer_scale = 1.0
+
+================================================================================
+LINES 2956-3026
+================================================================================
+ 2956:                     return
+ 2957:         elif event.type == pygame.MOUSEMOTION:
+ 2958:             if self.game_view.lore_window_dragging:
+ 2959:                 tex_w, tex_h = self.screen_texture.size
+ 2960:                 screen_w, screen_h = self.screen.get_size()
+ 2961:                 mouse_tex_x = int(event.pos[0] * (tex_w / screen_w))
+ 2962:                 mouse_tex_y = int(event.pos[1] * (tex_h / screen_h))
+ 2963:                 
+ 2964:                 win_w = int(tex_w * 0.65)
+ 2965:                 win_h = int(tex_h * 0.55)
+ 2966:                 base_x = (tex_w - win_w) // 2
+ 2967:                 base_y = (tex_h - win_h) // 2
+ 2968:                 
+ 2969:                 new_x = mouse_tex_x - self.game_view.lore_drag_start_x
+ 2970:                 new_y = mouse_tex_y - self.game_view.lore_drag_start_y
+ 2971:                 self.game_view.lore_window_offset_x = new_x - base_x
+ 2972:                 self.game_view.lore_window_offset_y = new_y - base_y
+ 2973:                 
+ 2974:                 self.game_view.lore_window_offset_x = max(-base_x, min(tex_w - win_w - base_x, self.game_view.lore_window_offset_x))
+ 2975:                 self.game_view.lore_window_offset_y = max(-base_y, min(tex_h - win_h - base_y, self.game_view.lore_window_offset_y))
+ 2976:             elif getattr(self.game_logic, "lore_window_open", False):
+ 2977:                 tex_w, tex_h = self.screen_texture.size
+ 2978:                 screen_w, screen_h = self.screen.get_size()
+ 2979:                 pos = (int(event.pos[0] * (tex_w / screen_w)), int(event.pos[1] * (tex_h / screen_h)))
+ 2980:                 self.game_view.handle_lore_motion(self.game_logic, pos)
+ 2981:             
+ 2982:         elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+ 2983:             self.menu_cursor.trigger_click_animation()
+ 2984:             win_w, win_h = self.screen.get_size()
+ 2985:             tex_w, tex_h = self.screen_texture.size
+ 2986:             pos_x = int(event.pos[0] * (tex_w / win_w))
+ 2987:             pos_y = int(event.pos[1] * (tex_h / win_h))
+ 2988:             pos = (pos_x, pos_y)
+ 2989: 
+ 2990:             # EVT_004 exclusively owns left-click input while the encounter is active.
+ 2991:             if self._handle_evt004_click(pos):
+ 2992:                 return
+ 2993: 
+ 2994:             if self.event_collection_open:
+ 2995:                 if self.event_collection_closing:
+ 2996:                     return
+ 2997:                 if (self.event_collection_close_rect and self.event_collection_close_rect.collidepoint(pos)):
+ 2998:                     self._close_event_collection()
+ 2999:                 elif self.event_collection_window_rect and not self.event_collection_window_rect.collidepoint(pos):
+ 3000:                     self._close_event_collection()
+ 3001:                 return
+ 3002:             if self.event_collection_icon_rect and self.event_collection_icon_rect.collidepoint(pos):
+ 3003:                 self._open_event_collection()
+ 3004:                 return
+ 3005: 
+ 3006:             hx = getattr(self.game_logic, "hidden_hitbox_x", 0)
+ 3007:             hy = getattr(self.game_logic, "hidden_hitbox_y", 0)
+ 3008:             hidden_rect = pygame.Rect(hx - 15, hy - 15, 30, 30)
+ 3009:             if hidden_rect.collidepoint(pos) and not getattr(self.game_logic, "code_window_open", False):
+ 3010:                 self.game_logic.code_window_open = True
+ 3011:                 self.game_logic.input_buffer = [None, None, None]
+ 3012:                 self.game_logic.current_cell_index = 0
+ 3013:                 self.game_logic.current_cell_buffer = ""
+ 3014:                 self.game_logic.system_response_text = ""
+ 3015:                 self.game_view.code_window_dirty = True
+ 3016:                 return
+ 3017:             if getattr(self.game_logic, "code_window_open", False):
+ 3018:                 close_rect = getattr(self.game_view, "code_close_rect", None)
+ 3019:                 if close_rect and close_rect.collidepoint(pos):
+ 3020:                     self._cancel_archive_pin()
+ 3021:                     return
+ 3022:                 cancel_rect = getattr(self.game_view, "code_cancel_btn_rect", None)
+ 3023:                 if cancel_rect and cancel_rect.collidepoint(pos):
+ 3024:                     self._cancel_archive_pin()
+ 3025:                     return
+ 3026:                 if self.code_init_active:
+
+================================================================================
+LINES 3523-3593
+================================================================================
+ 3523:                     surf, message[:self.evt003_typewriter_count], elapsed,
+ 3524:                     wallpaper_index=self.game_logic.wallpaper_index,
+ 3525:                     remaining_seconds=remaining_seconds,
+ 3526:                     duration_seconds=duration,
+ 3527:                 )
+ 3528:             else:
+ 3529:                 progress = (time.monotonic() - self.evt003_gameover_started_at) / 2.35
+ 3530:                 self.evt003_presentation.draw_game_over(
+ 3531:                     surf, progress, wallpaper_index=self.game_logic.wallpaper_index,
+ 3532:                 )
+ 3533:             # The system cursor is normally composed by the gameplay renderer.
+ 3534:             # This exclusive event render path must compose it explicitly as well.
+ 3535:             self.menu_cursor.set_hover_state(False)
+ 3536:             self.menu_cursor.draw(surf)
+ 3537:             self.screen_texture.write(pygame.image.tobytes(surf, "RGBA", True))
+ 3538:             return
+ 3539:         glitch_intensity = self.game_logic.get_glitch_intensity()
+ 3540:         center_text = self.game_logic.get_center_text(self.current_lang)
+ 3541:         self.game_view.draw(
+ 3542:             surf, 
+ 3543:             self.game_logic, 
+ 3544:             self.current_lang,
+ 3545:             self.game_seconds_left, 
+ 3546:             center_text, 
+ 3547:             self.game_blink_visible,
+ 3548:             glitch_intensity, 
+ 3549:             self.typed_phrase, 
+ 3550:             self.game_logic.total_clicks,
+ 3551:             self.game_logic.wallpaper_index, 
+ 3552:             self.easter_egg_phrase, 
+ 3553:             effects_enabled=self.effects_enabled,
+ 3554:             debug_mode=self.debug_mode
+ 3555:         )
+ 3556: 
+ 3557:         # EVT_004 overlay: draw dragon and damaged targets over the game scene
+ 3558:         self._draw_evt004(surf)
+ 3559: 
+ 3560:         if self.game_logic.word_shock_active:
+ 3561:             if self.admin_panel_open:
+ 3562:                 self._draw_admin_panel(surf)
+ 3563:             self.screen_texture.write(pygame.image.tobytes(surf, "RGBA", True))
+ 3564:             return
+ 3565: 
+ 3566:         self._draw_event_collection_icon(surf)
+ 3567:         self._draw_secret_input(surf)
+ 3568: 
+ 3569:         clicks = self.game_logic.total_clicks
+ 3570:         phase_name = self._get_phase_name(clicks)
+ 3571:         info_text = f"{phase_name} | CLICKS: {clicks}"
+ 3572:         info_surf = text_cache.get_surface(self.game_view.apply_glitch(info_text, glitch_intensity), "Courier New", 16, (0, 255, 0), bold=True)
+ 3573:         surf.blit(info_surf, (w - info_surf.get_width() - 10, h - info_surf.get_height() - 10))
+ 3574: 
+ 3575:         if self.notification_text and pygame.time.get_ticks() < self.notification_timer:
+ 3576:             notif_surf = text_cache.get_surface(self.notification_text, "Courier New", 16, (255, 255, 0), bold=True)
+ 3577:             surf.blit(notif_surf, (w - notif_surf.get_width() - 10, h - notif_surf.get_height() - 40))
+ 3578:         elif self.notification_text:
+ 3579:             self.notification_text = ""
+ 3580: 
+ 3581:         # Draw subtitles
+ 3582:         self._draw_subtitles(surf, self.font_subtitle)
+ 3583: 
+ 3584:         # Debug overlay (restored - toggle with backtick key)
+ 3585:         if self.debug_mode:
+ 3586:             # Secret code
+ 3587:             code_str = f"SECRET CODE: {self.game_logic.secret_code}"
+ 3588:             code_surf = text_cache.get_surface(code_str, "Courier New", 16, (0, 255, 0), bold=True)
+ 3589:             surf.blit(code_surf, (10, 10))
+ 3590:             # FPS
+ 3591:             fps = int(self.clock.get_fps())
+ 3592:             fps_text = f"FPS: {fps}"
+ 3593:             fps_surf = text_cache.get_surface(fps_text, "Courier New", 16, (0, 255, 0), bold=True)
+
+================================================================================
+LINES 4070-4142
+================================================================================
+ 4070:                 if was_sandbox:
+ 4071:                     self._evt003_schedule_phase(self.game_logic.get_phase())
+ 4072:                 return
+ 4073:             if outcome is not None:
+ 4074:                 was_sandbox = self.evt003_is_sandbox
+ 4075:                 self.evt003_instance_id = None
+ 4076:                 self.evt003_state = None
+ 4077:                 self.evt003_typewriter_count = 0
+ 4078:                 self.audio_box.play_evt003_success()
+ 4079:                 if was_sandbox:
+ 4080:                     self.evt003_is_sandbox = False
+ 4081:                     self._evt003_schedule_phase(self.game_logic.get_phase())
+ 4082:                     self._show_notification("SANDBOX: COMPLIANCE ╖ срырэё ш шёЄюЁш  эх шчьхэхэ√.", duration=2600)
+ 4083:                 else:
+ 4084:                     self.evt003_next_check_at = float("inf")
+ 4085:             return
+ 4086:         if self.evt003_state == "GAME_OVER":
+ 4087:             progress = (now - self.evt003_gameover_started_at) / 2.35
+ 4088:             if progress >= 1.0:
+ 4089:                 was_sandbox = self.evt003_is_sandbox
+ 4090:                 self.evt003_state = None
+ 4091:                 self.evt003_dialog_payload = None
+ 4092:                 self.evt003_instance_id = None
+ 4093:                 self.evt003_is_sandbox = False
+ 4094:                 if was_sandbox:
+ 4095:                     # Sandbox isolates persistent balance/history, not the visible game-over flow.
+ 4096:                     self._evt003_schedule_phase(self.game_logic.get_phase())
+ 4097:                     self.admin_panel_open = False
+ 4098:                 self.current_screen = "menu"
+ 4099:                 self.audio_box.play_menu_music()
+ 4100:             return
+ 4101: 
+ 4102:     def _update_game(self):
+ 4103:         if self.event_collection_open or self.secret_input_open:
+ 4104:             return
+ 4105:         if self.evt004_runtime is not None:
+ 4106:             self._update_evt004(self.clock.get_time() / 1000.0)
+ 4107:             # EVT004 has an exclusive main_gameplay claim; do not tick normal gameplay underneath it.
+ 4108:             return
+ 4109:         if self.evt003_state is not None:
+ 4110:             self._update_evt003()
+ 4111:             return
+ 4112:         self._maybe_start_evt003()
+ 4113:         if self.evt003_state is not None:
+ 4114:             return
+ 4115:         if self.game_logic.word_shock_active or self.event_lifecycle.is_tracked("EVT_002_WORD_SHOCK"):
+ 4116:             self._sync_managed_word_shock()
+ 4117:         if self.game_logic.word_shock_active:
+ 4118:             word_shock_update = self.game_logic.update_word_shock()
+ 4119:             if word_shock_update == "MODAL_OPEN":
+ 4120:                 pygame.key.start_text_input()
+ 4121:             elif word_shock_update == "EXPIRED":
+ 4122:                 pygame.key.stop_text_input()
+ 4123:                 self._sync_managed_word_shock()
+ 4124:             return
+ 4125:         now = pygame.time.get_ticks()
+ 4126:         dt = self.clock.get_time() / 1000.0
+ 4127:         self._update_hidden_system(dt)
+ 4128:         self._update_code_init(dt)
+ 4129:         
+ 4130:         # ╬Єёыхцштрхь чртхЁ°хэшх яюуюэш, ўЄюс√ яЁюшуЁрЄ№ чтєъ єїюфр яырэхЄ√
+ 4131:         # Єюы№ъю яЁш шёЄхўхэшш ЄрщьхЁр, р эх яюёых єёях°эюую чрїтрЄр.
+ 4132:         chase_was_active = self.game_logic.sprite_active
+ 4133:         chase_timer_was_active = self.game_logic.timer_active
+ 4134: 
+ 4135:         # ╬яЄшьшчрЎш : GameLogic.update() т√ч√трхь ё dt фы  тючьюцэюёЄш throttling
+ 4136:         self.game_logic.update()
+ 4137:         self._sync_managed_roach_attack()
+ 4138:         sequence_update = self.game_logic.update_roach_sequence()
+ 4139:         if sequence_update == "ROACH_TRIGGER":
+ 4140:             self._start_roach_attack()
+ 4141:         _roach_mode_blocked = (
+ 4142:             self.game_logic.minigame_active
