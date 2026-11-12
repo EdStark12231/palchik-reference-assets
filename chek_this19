@@ -1,0 +1,1826 @@
+
+=== main.py ===
+
+--- _handle_intro_slide_events: lines 858-869 ---
+858:     def _handle_intro_slide_events(self, event):
+859:         if not self.intro_slides_active or self.admin_panel_open:
+860:             return
+861:         if event.type == pygame.KEYDOWN and event.key in (pygame.K_RETURN, pygame.K_KP_ENTER, pygame.K_SPACE):
+862:             self._advance_intro_slide()
+863:         elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+864:             screen_w, screen_h = self.screen.get_size()
+865:             tex_w, tex_h = self.screen_texture.size
+866:             pos = (int(event.pos[0] * tex_w / max(1, screen_w)),
+867:                    int(event.pos[1] * tex_h / max(1, screen_h)))
+868:             if self.intro_slide_button_rect and self.intro_slide_button_rect.collidepoint(pos):
+869:                 self._advance_intro_slide()
+
+--- _admin_start_new_game: lines 871-888 ---
+871:     def _admin_start_new_game(self):
+872:         if self.game_logic.roach_attack_active or self.event_lifecycle.is_tracked("EVT_001_ROACH_ATTACK"):
+873:             self._cancel_managed_roach_attack(reason="ADMIN_NEW_GAME")
+874:         if self.game_logic.word_shock_active or self.event_lifecycle.is_tracked("EVT_002_WORD_SHOCK"):
+875:             self._cancel_managed_word_shock(reason="ADMIN_NEW_GAME")
+876:         self.admin_panel_open = False
+877:         if self.settings_box.is_open:
+878:             self.settings_box.close_dialog()
+879:         self.current_screen = "game"
+880:         self.crash_stage = 0
+881:         self.channel_switch_active = False
+882:         self.intro_slides_active = False
+883:         self.audio_box.stop_music()
+884:         w, h = self.screen.get_size()
+885:         self.name_input_scene = NameInputScene((w, h), self.current_lang, self.menu_cursor)
+886:         if hasattr(self.name_input_scene, "buffer"):
+887:             self.name_input_scene.buffer = ""
+888:         self.name_entry_active = True
+
+--- _admin_minigame_registry: lines 950-968 ---
+950:     def _admin_minigame_registry(self):
+951:         """Single registry for implemented mini-games and their real launch functions."""
+952:         return {
+953:             "memory": {
+954:                 "label": "MEMORY · СЕКТОРА",
+955:                 "description": "Найди правильный сектор три раза подряд.",
+956:                 "launcher": self.game_logic.start_memory_minigame,
+957:             },
+958:             "free_clean": {
+959:                 "label": "FREE CLEAN · ТАЙМЕР",
+960:                 "description": "Запусти штатный таймер уборки.",
+961:                 "launcher": self._start_free_clean_flow,
+962:             },
+963:             "chase_planet": {
+964:                 "label": "CHASE PLANET",
+965:                 "description": "Запусти таймер и сразу вызови первый раунд планет.",
+966:                 "launcher": self._start_chase_planet_test,
+967:             },
+968:         }
+
+--- _admin_launch_minigame: lines 970-982 ---
+970:     def _admin_launch_minigame(self, game_id):
+971:         if not self._admin_phase_controls_available():
+972:             self._show_notification("Мини-игры доступны только в игровой сцене.", duration=1800)
+973:             return
+974:         definition = self._admin_minigame_registry().get(game_id)
+975:         if not definition or not callable(definition.get("launcher")):
+976:             self._show_notification("Эта мини-игра ещё не реализована.", duration=1800)
+977:             return
+978: 
+979:         # Reuse the complete scene/session reset: preserve score and lifetime clicks,
+980:         # but also clear application-level overlays, animations and window state.
+981:         self._begin_game_session(reset_progress=False)
+982:         definition["launcher"]()
+
+--- _admin_reset_minigame: lines 984-991 ---
+984:     def _admin_reset_minigame(self):
+985:         if not self._admin_phase_controls_available():
+986:             return
+987:         # Return to a clean gameplay baseline while keeping the panel on this tab.
+988:         self._begin_game_session(reset_progress=False)
+989:         self.admin_panel_open = True
+990:         self.admin_panel_tab = "minigames"
+991:         self._show_notification("ADMIN TEST RESET", duration=1800)
+
+--- _begin_managed_event: lines 993-999 ---
+993:     def _begin_managed_event(self, event_id, *, data=None):
+994:         """Reserve Event Manager resources before starting a legacy event controller."""
+995:         try:
+996:             return self.event_lifecycle.begin(event_id, data=data)
+997:         except RuntimeError as exc:
+998:             self._show_notification(f"Событие заблокировано: {exc}", duration=1800)
+999:             return None
+
+--- _finish_managed_event: lines 1001-1015 ---
+1001:     def _finish_managed_event(self, event_id, *, cancelled=False, reason=None):
+1002:         """Finish the managed instance and restore temporary legacy parameters."""
+1003:         instance = self.event_lifecycle.instance_for(event_id)
+1004:         finished = self.event_lifecycle.finish(
+1005:             event_id, cancelled=cancelled, reason=reason
+1006:         )
+1007:         if (
+1008:             instance is not None
+1009:             and event_id == "EVT_001_ROACH_ATTACK"
+1010:             and "previous_roach_reward_per_roach" in instance.data
+1011:         ):
+1012:             self.game_logic.roach_reward_per_roach = int(
+1013:                 instance.data["previous_roach_reward_per_roach"]
+1014:             )
+1015:         return finished
+
+--- _managed_event_inspect: lines 1090-1105 ---
+1090:     def _managed_event_inspect(self, event_id, legacy_text):
+1091:         instance = self.event_lifecycle.instance_for(event_id)
+1092:         if instance is None:
+1093:             history = [
+1094:                 item for item in self.event_manager.instances.values()
+1095:                 if item.event_id == event_id
+1096:             ]
+1097:             instance = max(
+1098:                 history, key=lambda item: item.started_at or 0.0, default=None
+1099:             )
+1100:         if instance is not None:
+1101:             manager_state = instance.status.value
+1102:         else:
+1103:             blocked = self.event_manager.last_block_reason.get(event_id)
+1104:             manager_state = f"BLOCKED ({blocked})" if blocked else "IDLE"
+1105:         return f"{legacy_text} | Event Manager: {manager_state}"
+
+--- _open_admin_log_file: lines 1366-1376 ---
+1366:     def _open_admin_log_file(self):
+1367:         self.log_file_path.parent.mkdir(parents=True, exist_ok=True)
+1368:         self.log_file_path.touch(exist_ok=True)
+1369:         try:
+1370:             if os.name == "nt":
+1371:                 os.startfile(str(self.log_file_path))
+1372:             else:
+1373:                 subprocess.Popen(["xdg-open", str(self.log_file_path)])
+1374:         except Exception as exc:
+1375:             self._log_exception("ADMIN_LOG_OPEN", exc)
+1376:             self._show_notification("Не удалось открыть файл журнала. См. путь в панели.", duration=2500)
+
+--- _route_evt004_audio_events: lines 1390-1409 ---
+1390:     def _route_evt004_audio_events(self, events):
+1391:         """Route runtime state transitions to dedicated EVT004 sound channels."""
+1392:         sound_paths = self.evt004_audio_config.get("events", {})
+1393:         for event_key in events:
+1394:             if event_key == "wing_flap_loop_stop":
+1395:                 self.audio_box.stop_evt004_sfx("wing_flap_loop")
+1396:                 self._evt004_wing_loop_active = False
+1397:                 continue
+1398:             loop = event_key == "wing_flap_loop_start"
+1399:             sound_key = "wing_flap_loop" if loop else event_key
+1400:             sound_path = sound_paths.get(sound_key)
+1401:             if not sound_path:
+1402:                 self.app_logger.warning("EVT_004 audio key missing from config: %s", sound_key)
+1403:                 continue
+1404:             self.audio_box.play_evt004_sfx(
+1405:                 sound_path, event_key=sound_key, loop=loop,
+1406:                 volume=0.42 if loop else 0.78,
+1407:             )
+1408:             if loop:
+1409:                 self._evt004_wing_loop_active = True
+
+--- _start_evt004_admin: lines 1468-1487 ---
+1468:     def _start_evt004_admin(self):
+1469:         """Launch EVT_004 from admin panel without writing player progress."""
+1470:         if not self._admin_phase_controls_available():
+1471:             self._show_notification("EVT_004 ДОСТУПЕН ТОЛЬКО В ИГРОВОЙ СЦЕНЕ", duration=1800)
+1472:             return False
+1473:         if self.evt004_runtime is not None and self.evt004_runtime.running:
+1474:             self._show_notification("EVT_004 УЖЕ ВЫПОЛНЯЕТСЯ", duration=1500)
+1475:             return False
+1476:         try:
+1477:             instance = self.event_manager.begin("EVT_004_ADVENTURE_ROAD", {
+1478:                 "source": "ADMIN",
+1479:                 "admin_sandbox": True,
+1480:             })
+1481:         except RuntimeError as exc:
+1482:             self._show_notification(f"EVT_004 БЛОКИРОВАН: {exc}", duration=2000)
+1483:             return False
+1484:         if not self._initialize_evt004_instance(instance):
+1485:             return False
+1486:         self._show_notification("EVT_004: АДМИН-ТЕСТ ЗАПУЩЕН", duration=2000)
+1487:         return True
+
+--- _handle_evt004_result_event: lines 1660-1690 ---
+1660:     def _handle_evt004_result_event(self, event):
+1661:         """Consume gameplay input while the EVT_004 result is active."""
+1662:         if event.type == pygame.VIDEORESIZE:
+1663:             self.screen = pygame.display.set_mode(
+1664:                 (event.w, event.h),
+1665:                 pygame.FULLSCREEN | pygame.DOUBLEBUF | pygame.OPENGL,
+1666:             )
+1667:             self._setup_menu_hitboxes()
+1668:             self.game_view.width = event.w
+1669:             self.game_view.height = event.h
+1670:             self.game_view.recalculate_layout()
+1671:             return
+1672: 
+1673:         if event.type != pygame.MOUSEBUTTONDOWN or event.button != 1:
+1674:             return
+1675: 
+1676:         presentation = getattr(self, "evt004_result_presentation", None)
+1677:         if presentation is None:
+1678:             return
+1679: 
+1680:         now = time.monotonic()
+1681:         action = presentation.handle_click(event.pos, now=now)
+1682: 
+1683:         if action == "advanced":
+1684:             self.evt004_result_text = presentation.current_text
+1685:             self.evt004_result_started_at = now
+1686:             self.evt004_result_typewriter_count = 0
+1687:             self.evt004_result_revealed = False
+1688: 
+1689:         elif action == "finished":
+1690:             self._close_evt004_result_screen()
+
+--- _admin_stop_event: lines 1753-1767 ---
+1753:     def _admin_stop_event(self, event_id):
+1754:         if event_id == "EVT_001_ROACH_ATTACK":
+1755:             self._cancel_managed_roach_attack(reason="ADMIN_STOP")
+1756:             self.admin_event_inspect_text = self._managed_event_inspect(
+1757:                 event_id, self.game_logic.inspect_roach_attack()
+1758:             )
+1759:         elif event_id == "EVT_002_WORD_SHOCK":
+1760:             self._cancel_managed_word_shock(reason="ADMIN_STOP")
+1761:             self.admin_event_inspect_text = self._managed_event_inspect(
+1762:                 event_id, self.game_logic.inspect_word_shock()
+1763:             )
+1764:         else:
+1765:             return
+1766:         self.admin_panel_tab = "events"
+1767:         self._show_notification(event_id + ": STOPPED", duration=1500)
+
+--- _admin_reset_event: lines 1769-1783 ---
+1769:     def _admin_reset_event(self, event_id):
+1770:         if event_id == "EVT_001_ROACH_ATTACK":
+1771:             self._cancel_managed_roach_attack(reset=True, reason="ADMIN_RESET")
+1772:             self.admin_event_inspect_text = self._managed_event_inspect(
+1773:                 event_id, self.game_logic.inspect_roach_attack()
+1774:             )
+1775:         elif event_id == "EVT_002_WORD_SHOCK":
+1776:             self._cancel_managed_word_shock(reset=True, reason="ADMIN_RESET")
+1777:             self.admin_event_inspect_text = self._managed_event_inspect(
+1778:                 event_id, self.game_logic.inspect_word_shock()
+1779:             )
+1780:         else:
+1781:             return
+1782:         self.admin_panel_tab = "events"
+1783:         self._show_notification(event_id + ": RESET", duration=1500)
+
+--- _admin_inspect_event: lines 1785-1793 ---
+1785:     def _admin_inspect_event(self, event_id):
+1786:         if event_id == "EVT_001_ROACH_ATTACK":
+1787:             self.admin_event_inspect_text = self._managed_event_inspect(
+1788:                 event_id, self.game_logic.inspect_roach_attack()
+1789:             )
+1790:         elif event_id == "EVT_002_WORD_SHOCK":
+1791:             self.admin_event_inspect_text = self._managed_event_inspect(
+1792:                 event_id, self.game_logic.inspect_word_shock()
+1793:             )
+
+--- _admin_phase_controls_available: lines 1795-1803 ---
+1795:     def _admin_phase_controls_available(self):
+1796:         return (
+1797:             self.current_screen == "game"
+1798:             and self.crash_stage == 0
+1799:             and not self.intro_slides_active
+1800:             and not self.name_entry_active
+1801:             and not self.channel_switch_active
+1802:             and not (self.evt004_runtime is not None and self.evt004_runtime.running)
+1803:         )
+
+--- _admin_set_phase: lines 1805-1821 ---
+1805:     def _admin_set_phase(self, clicks):
+1806:         if not self._admin_phase_controls_available():
+1807:             return
+1808:         # Phase jumps clear transient state from the previous phase, but keep score.
+1809:         if self.game_logic.word_shock_active or self.event_lifecycle.is_tracked("EVT_002_WORD_SHOCK"):
+1810:             self._cancel_managed_word_shock(reason="PHASE_RESET")
+1811:         if self.game_logic.roach_attack_active or self.event_lifecycle.is_tracked("EVT_001_ROACH_ATTACK"):
+1812:             self._cancel_managed_roach_attack(reason="PHASE_RESET")
+1813:         self.game_logic.reset_session(reset_progress=False)
+1814:         self.game_logic.total_clicks = int(clicks)
+1815:         self.game_logic._sync_to_disk()
+1816:         self.final_phase_triggered = False
+1817:         self.crash_stage = 0
+1818:         self.fake_crash_start = 0
+1819:         self.game_view.recalculate_layout()
+1820:         self._show_notification(f"ADMIN: phase position {clicks} clicks", duration=1800)
+1821:         self._on_limit_reached()
+
+--- _admin_event_registry: lines 1823-1832 ---
+1823:     def _admin_event_registry(self):
+1824:         """Expose event metadata from the central catalog to the existing admin UI."""
+1825:         return {
+1826:             definition.event_id: {
+1827:                 "label": definition.label,
+1828:                 "description": definition.description,
+1829:             }
+1830:             for definition in self.event_catalog.all(enabled_only=True)
+1831:             if definition.metadata.get("admin_supported", False)
+1832:         }
+
+--- _admin_trigger_event: lines 1834-1855 ---
+1834:     def _admin_trigger_event(self, event_id):
+1835:         if event_id not in self._admin_event_registry():
+1836:             self._show_notification("НЕВЕРНЫЙ ID СОБЫТИЯ.", duration=1600)
+1837:             return
+1838:         if not self._admin_phase_controls_available():
+1839:             self._show_notification("СОБЫТИЕ НЕДОСТУПНО В ЭТОТ МОМЕНТ.", duration=1800)
+1840:             return
+1841:         if event_id == "EVT_001_ROACH_ATTACK":
+1842:             started = self._start_roach_attack(launch_source="ADMIN")
+1843:         elif event_id == "EVT_002_WORD_SHOCK":
+1844:             started = self._start_word_shock(launch_source="ADMIN")
+1845:         elif event_id == "EVT_003_PLEASE_DONT_TOUCH":
+1846:             started = self._admin_trigger_evt003()
+1847:         elif event_id == "EVT_004_ADVENTURE_ROAD":
+1848:             started = self._start_evt004_admin()
+1849:         else:
+1850:             self._show_notification("ЭТО СОБЫТИЕ НЕ НАСТРОЕНО НА АДМИН СКРИПТ.", duration=1800)
+1851:             return
+1852:         if started:
+1853:             self.admin_panel_tab = "events"
+1854:             self.admin_panel_open = False
+1855:             self._show_notification(event_id + ": TRIGGERED", duration=1800)
+
+--- _evt003_admin_block_reason: lines 1857-1867 ---
+1857:     def _evt003_admin_block_reason(self):
+1858:         logic = self.game_logic
+1859:         blocked = (
+1860:             logic.word_shock_active or logic.roach_attack_active
+1861:             or logic.minigame_active or logic.timer_active or logic.sprite_active
+1862:             or logic.chase_planet_active or logic.fade_screen_active
+1863:             or logic.code_window_open or logic.lore_window_open
+1864:             or logic.lore_text_viewer_open or logic.lore_image_viewer_open
+1865:             or self.settings_box.is_open
+1866:         )
+1867:         return "GAMEPLAY_MODE_BUSY" if blocked else None
+
+--- _start_evt003_admin_flow: lines 1869-1907 ---
+1869:     def _start_evt003_admin_flow(self, phase, *, sandbox):
+1870:         if not self._admin_phase_controls_available():
+1871:             self._show_notification("EVT_003 доступен только в игровой сцене.", duration=1800)
+1872:             return False
+1873:         if self.evt003_state is not None:
+1874:             self._show_notification("EVT_003 уже выполняется.", duration=1800)
+1875:             return False
+1876:         reason = self._evt003_admin_block_reason()
+1877:         if reason:
+1878:             self._show_notification("EVT_003 нельзя запустить поверх другого игрового режима.", duration=2200)
+1879:             return False
+1880:         allowed, reason = self.evt003_runtime.can_start(phase, sandbox=sandbox)
+1881:         if not allowed:
+1882:             message = (
+1883:                 "EVT_003 уже использовал реальную попытку в этой фазе."
+1884:                 if reason == "ALREADY_OCCURRED_THIS_PHASE"
+1885:                 else f"EVT_003 сейчас недоступен: {reason or 'EVENT_BLOCKED'}"
+1886:             )
+1887:             self._show_notification(message, duration=2600)
+1888:             return False
+1889:         try:
+1890:             instance = self.evt003_runtime.start(phase, sandbox=sandbox)
+1891:         except Exception as exc:
+1892:             self._log_exception(f"EVT003_ADMIN_START phase={phase} sandbox={sandbox}", exc)
+1893:             self._show_notification("EVT_003: не удалось запустить событие. Откройте F2 → ЖУРНАЛ.", duration=2800)
+1894:             return False
+1895:         self.evt003_instance_id = instance.instance_id
+1896:         self.evt003_started_at = float(instance.started_at or time.monotonic())
+1897:         self.evt003_typewriter_count = 0
+1898:         self.evt003_typewriter.reset(
+1899:             "PLEASE DON'T TOUCH ANYTHING", started_at=self.evt003_started_at,
+1900:             interval=self.evt003_typewriter_interval,
+1901:         )
+1902:         self.evt003_dialog_payload = None
+1903:         self.evt003_is_sandbox = bool(sandbox)
+1904:         self.evt003_state = "RUNNING"
+1905:         self.evt003_scheduled_phase = phase
+1906:         self.evt003_next_check_at = float("inf")
+1907:         return True
+
+--- _admin_trigger_evt003: lines 1909-1911 ---
+1909:     def _admin_trigger_evt003(self):
+1910:         """Real run: consumes a persistent phase attempt and applies normal outcomes."""
+1911:         return self._start_evt003_admin_flow(self.game_logic.get_phase(), sandbox=False)
+
+--- _admin_test_evt003: lines 1913-1915 ---
+1913:     def _admin_test_evt003(self, phase):
+1914:         """Repeatable sandbox run: same presentation/resources, no player-save writes."""
+1915:         return self._start_evt003_admin_flow(str(phase), sandbox=True)
+
+--- mark_event_found: lines 1917-1921 ---
+1917:     def mark_event_found(self, event_id):
+1918:         """Mark a collection item as discovered; safe for future event handlers."""
+1919:         updated = mark_event_found(self.event_collection_progress, event_id)
+1920:         SaveManager.save_event_collection_state(progress=updated)
+1921:         self.event_collection_progress = updated
+
+--- mark_event_completed: lines 1923-1927 ---
+1923:     def mark_event_completed(self, event_id):
+1924:         """Mark an event as completed (completion also implies discovery)."""
+1925:         updated = mark_event_completed(self.event_collection_progress, event_id)
+1926:         SaveManager.save_event_collection_state(progress=updated)
+1927:         self.event_collection_progress = updated
+
+--- _open_event_collection: lines 2242-2249 ---
+2242:     def _open_event_collection(self):
+2243:         if not self.event_collection_unlocked or self.event_collection_open:
+2244:             return False
+2245:         self.event_collection_open = True
+2246:         self.event_collection_opened_at = time.monotonic()
+2247:         self.event_collection_closing = False
+2248:         self.event_collection_closing_started_at = 0.0
+2249:         return True
+
+--- _close_event_collection: lines 2251-2254 ---
+2251:     def _close_event_collection(self):
+2252:         if self.event_collection_open and not self.event_collection_closing:
+2253:             self.event_collection_closing = True
+2254:             self.event_collection_closing_started_at = time.monotonic()
+
+--- _draw_event_collection_icon: lines 2256-2296 ---
+2256:     def _draw_event_collection_icon(self, surface):
+2257:         if not self.event_collection_unlocked:
+2258:             self.event_collection_icon_rect = None
+2259:             return
+2260:         width, height = surface.get_size()
+2261:         game = self.game_view
+2262:         occupied = []
+2263:         for name in (
+2264:             "rect_back", "rect_target", "rect_phrase_btn", "rect_pbar",
+2265:             "rect_wallpaper", "rect_lore_icon", "rect_instant_wash",
+2266:             "rect_free_wash_btn", "rect_name_entry_btn", "lore_win_rect",
+2267:         ):
+2268:             rect = getattr(game, name, None)
+2269:             if rect is not None:
+2270:                 occupied.append((rect.x, rect.y, rect.width, rect.height))
+2271:         for rect in getattr(game, "rect_sectors", ()):
+2272:             if rect is not None:
+2273:                 occupied.append((rect.x, rect.y, rect.width, rect.height))
+2274:         # Reserve the existing lower-right status/notification area as well.
+2275:         occupied.append((max(0, width - 520), max(0, height - 62), min(520, width), 62))
+2276:         chosen = choose_event_collection_icon_rect((width, height), occupied, icon_size=42, margin=18)
+2277:         if chosen is None:
+2278:             self.event_collection_icon_rect = None
+2279:             return
+2280:         rect = pygame.Rect(*chosen)
+2281:         self.event_collection_icon_rect = rect
+2282: 
+2283:         now = time.monotonic()
+2284:         pulse = 0.5 + 0.5 * math.sin(now * 3.8)
+2285:         halo = pygame.Surface((rect.width + 18, rect.height + 18), pygame.SRCALPHA)
+2286:         pygame.draw.rect(halo, (0, 255, 105, int(28 + 44 * pulse)), (4, 4, rect.width + 10, rect.height + 10), 5)
+2287:         surface.blit(halo, (rect.x - 9, rect.y - 9))
+2288:         pygame.draw.rect(surface, (4, 18, 25), rect)
+2289:         pygame.draw.rect(surface, (0, 210, 95), rect, 2)
+2290:         pygame.draw.rect(surface, (35, 105, 122), rect.inflate(-8, -8), 1)
+2291:         # Pixel book glyph; the old wallpaper and lore shortcuts retain their own slots.
+2292:         pygame.draw.rect(surface, (160, 225, 255), (rect.x + 10, rect.y + 9, 9, 24))
+2293:         pygame.draw.rect(surface, (195, 245, 255), (rect.x + 21, rect.y + 9, 10, 24))
+2294:         pygame.draw.rect(surface, (4, 30, 42), (rect.x + 18, rect.y + 9, 4, 24))
+2295:         pygame.draw.line(surface, (20, 90, 110), (rect.x + 12, rect.y + 15), (rect.x + 17, rect.y + 15), 1)
+2296:         pygame.draw.line(surface, (20, 90, 110), (rect.x + 23, rect.y + 15), (rect.x + 29, rect.y + 15), 1)
+
+--- _draw_event_collection_window: lines 2298-2485 ---
+2298:     def _draw_event_collection_window(self, surface):
+2299:         width, height = surface.get_size()
+2300:         now = time.monotonic()
+2301:         opening_t = min(1.0, max(0.0, (now - self.event_collection_opened_at) / 0.30))
+2302:         opening_ease = 1.0 - (1.0 - opening_t) ** 3
+2303:         closing_t = 0.0
+2304:         if self.event_collection_closing:
+2305:             closing_t = min(1.0, max(0.0, (now - self.event_collection_closing_started_at) / 0.22))
+2306:         visibility = opening_ease * (1.0 - closing_t)
+2307:         if self.event_collection_closing and closing_t >= 1.0:
+2308:             self.event_collection_open = False
+2309:             self.event_collection_closing = False
+2310:             self.event_collection_window_rect = None
+2311:             self.event_collection_close_rect = None
+2312:             return
+2313: 
+2314:         shade = pygame.Surface((width, height), pygame.SRCALPHA)
+2315:         shade.fill((0, 0, 0, int(118 * visibility)))
+2316:         surface.blit(shade, (0, 0))
+2317: 
+2318:         # Compact two-column archive: all 12 entries remain visible at once.
+2319:         panel_w = min(760, max(280, width - 36))
+2320:         panel_h = min(520, max(280, height - 36))
+2321:         if panel_w > width - 12:
+2322:             panel_w = width - 12
+2323:         if panel_h > height - 12:
+2324:             panel_h = height - 12
+2325:         final_panel = pygame.Rect((width - panel_w) // 2, (height - panel_h) // 2, panel_w, panel_h)
+2326:         scale = 0.90 + 0.10 * visibility
+2327:         draw_w, draw_h = max(1, int(panel_w * scale)), max(1, int(panel_h * scale))
+2328:         layer = pygame.Surface((panel_w, panel_h), pygame.SRCALPHA)
+2329: 
+2330:         # Windows 95 shell with restrained arcade status accents.
+2331:         layer.fill((192, 192, 192, 255))
+2332:         pygame.draw.rect(layer, (255, 255, 255), (0, 0, panel_w, panel_h), 2)
+2333:         pygame.draw.line(layer, (255, 255, 255), (2, 2), (panel_w - 3, 2), 1)
+2334:         pygame.draw.line(layer, (255, 255, 255), (2, 2), (2, panel_h - 3), 1)
+2335:         pygame.draw.line(layer, (64, 64, 64), (2, panel_h - 3), (panel_w - 3, panel_h - 3), 1)
+2336:         pygame.draw.line(layer, (64, 64, 64), (panel_w - 3, 2), (panel_w - 3, panel_h - 3), 1)
+2337: 
+2338:         title_bar = pygame.Rect(4, 4, panel_w - 8, 30)
+2339:         pygame.draw.rect(layer, (0, 0, 128), title_bar)
+2340:         # Pixel archive icon.
+2341:         pygame.draw.rect(layer, (192, 192, 192), (10, 10, 15, 17))
+2342:         pygame.draw.rect(layer, (0, 0, 0), (10, 10, 15, 17), 1)
+2343:         pygame.draw.line(layer, (0, 0, 128), (17, 12), (17, 25), 2)
+2344:         pygame.draw.line(layer, (0, 0, 128), (12, 16), (15, 16), 1)
+2345:         pygame.draw.line(layer, (0, 0, 128), (19, 16), (23, 16), 1)
+2346:         title_font = pygame.font.SysFont("Arial", 16 if panel_w >= 440 else 12, bold=True)
+2347:         title_text = "PALCHIK.EXE — КОЛЛЕКЦИЯ СОБЫТИЙ" if panel_w >= 440 else "КОЛЛЕКЦИЯ СОБЫТИЙ"
+2348:         title = title_font.render(title_text, True, (255, 255, 255))
+2349:         layer.blit(title, (32, 10))
+2350: 
+2351:         close_local = pygame.Rect(panel_w - 27, 9, 18, 18)
+2352:         pygame.draw.rect(layer, (192, 192, 192), close_local)
+2353:         pygame.draw.line(layer, (255, 255, 255), close_local.topleft, (close_local.right - 1, close_local.top), 2)
+2354:         pygame.draw.line(layer, (255, 255, 255), close_local.topleft, (close_local.left, close_local.bottom - 1), 2)
+2355:         pygame.draw.line(layer, (64, 64, 64), (close_local.left, close_local.bottom - 1), (close_local.right - 1, close_local.bottom - 1), 2)
+2356:         pygame.draw.line(layer, (64, 64, 64), (close_local.right - 1, close_local.top), (close_local.right - 1, close_local.bottom - 1), 2)
+2357:         close_glyph = pygame.font.SysFont("Arial", 12, bold=True).render("X", True, (0, 0, 0))
+2358:         layer.blit(close_glyph, close_glyph.get_rect(center=close_local.center))
+2359: 
+2360:         found_count = sum(
+2361:             1 for item_id, _ in EVENT_COLLECTION_ITEMS
+2362:             if self.event_collection_progress.get(item_id, {}).get("found")
+2363:             or self.event_collection_progress.get(item_id, {}).get("completed")
+2364:         )
+2365:         completed_count = sum(
+2366:             1 for item_id, _ in EVENT_COLLECTION_ITEMS
+2367:             if self.event_collection_progress.get(item_id, {}).get("completed")
+2368:         )
+2369:         summary_text = (
+2370:             f"НАЙДЕНО: {found_count:02d}/{len(EVENT_COLLECTION_ITEMS):02d}     ПРОЙДЕНО: {completed_count:02d}/{len(EVENT_COLLECTION_ITEMS):02d}"
+2371:             if panel_w >= 520 else
+2372:             f"НАЙДЕНО {found_count:02d}/{len(EVENT_COLLECTION_ITEMS):02d}  |  ПРОЙДЕНО {completed_count:02d}/{len(EVENT_COLLECTION_ITEMS):02d}"
+2373:         )
+2374:         summary_font = pygame.font.SysFont("Courier New", 12 if panel_w >= 520 else 9, bold=True)
+2375:         summary = summary_font.render(summary_text, True, (0, 0, 96))
+2376:         layer.blit(summary, (18, 45))
+2377: 
+2378:         # Progress meter and short archive hint.
+2379:         meter = pygame.Rect(18, 65, panel_w - 36, 7)
+2380:         pygame.draw.rect(layer, (96, 96, 96), meter)
+2381:         if len(EVENT_COLLECTION_ITEMS):
+2382:             fill_w = int((meter.width - 2) * (found_count / len(EVENT_COLLECTION_ITEMS)))
+2383:             if fill_w > 0:
+2384:                 pygame.draw.rect(layer, (0, 128, 0), (meter.x + 1, meter.y + 1, fill_w, meter.height - 2))
+2385:         hint_font = pygame.font.SysFont("Arial", 10)
+2386:         hint_text = "СОБЫТИЕ ПОЯВИТСЯ В АРХИВЕ ПОСЛЕ ОБНАРУЖЕНИЯ" if panel_w >= 420 else "АРХИВ ОБНОВЛЯЕТСЯ ПРИ ОБНАРУЖЕНИИ"
+2387:         hint = hint_font.render(hint_text, True, (55, 55, 55))
+2388:         layer.blit(hint, (18, 79))
+2389: 
+2390:         # Use two columns on normal displays and three shorter columns when
+2391:         # vertical space is limited; all 12 entries stay inside the window.
+2392:         compact_grid = panel_h < 390
+2393:         columns = 3 if compact_grid else 2
+2394:         rows_per_column = 4 if compact_grid else 6
+2395:         col_gap = 10 if compact_grid else 12
+2396:         usable_width = max(1, panel_w - 36 - col_gap * (columns - 1))
+2397:         col_w = max(1, usable_width // columns)
+2398:         top = 101
+2399:         footer_y = panel_h - 20
+2400:         available_h = max(1, footer_y - top - 9)
+2401:         row_h = min(62, max(27, available_h // rows_per_column))
+2402:         card_h = max(23, row_h - 3)
+2403:         name_size = 12 if col_w >= 250 else (10 if col_w >= 125 else 8)
+2404:         status_size = 10 if col_w >= 250 else (8 if col_w >= 125 else 7)
+2405:         name_font = pygame.font.SysFont("Courier New", name_size, bold=True)
+2406:         status_font = pygame.font.SysFont("Courier New", status_size, bold=True)
+2407: 
+2408:         for index, (item_id, item_name) in enumerate(EVENT_COLLECTION_ITEMS):
+2409:             col = index // rows_per_column
+2410:             row = index % rows_per_column
+2411:             item_rect = pygame.Rect(
+2412:                 18 + col * (col_w + col_gap),
+2413:                 top + row * row_h,
+2414:                 col_w,
+2415:                 card_h,
+2416:             )
+2417:             item_progress = min(1.0, max(0.0, (now - self.event_collection_opened_at - 0.05 - index * 0.035) / 0.22))
+2418:             item_ease = 1.0 - (1.0 - item_progress) ** 2
+2419:             if item_ease <= 0:
+2420:                 continue
+2421:             shown_rect = item_rect.move(0, int((1.0 - item_ease) * 11))
+2422:             progress = self.event_collection_progress.get(item_id, {})
+2423:             completed = bool(progress.get("completed", False))
+2424:             found = bool(progress.get("found", False)) or completed
+2425: 
+2426:             card_bg = (205, 225, 205) if completed else ((215, 228, 240) if found else (192, 192, 192))
+2427:             pygame.draw.rect(layer, card_bg, shown_rect)
+2428:             pygame.draw.line(layer, (255, 255, 255), shown_rect.topleft, (shown_rect.right - 1, shown_rect.top), 2)
+2429:             pygame.draw.line(layer, (255, 255, 255), shown_rect.topleft, (shown_rect.left, shown_rect.bottom - 1), 2)
+2430:             pygame.draw.line(layer, (96, 96, 96), (shown_rect.left, shown_rect.bottom - 1), (shown_rect.right - 1, shown_rect.bottom - 1), 2)
+2431:             pygame.draw.line(layer, (96, 96, 96), (shown_rect.right - 1, shown_rect.top), (shown_rect.right - 1, shown_rect.bottom - 1), 2)
+2432: 
+2433:             status_text, status_color = (
+2434:                 ("ПРОЙДЕНО", (0, 105, 35)) if completed else
+2435:                 (("НАЙДЕНО · ЕЩЁ НЕ ПРОЙДЕНО", (0, 75, 125)) if found else ("НЕ НАЙДЕНО", (80, 80, 80)))
+2436:             )
+2437:             indicator_color = (0, 150, 45) if completed else ((0, 105, 180) if found else (110, 110, 110))
+2438:             compact_card = shown_rect.height < 30
+2439:             indicator_size = 5 if compact_card else 7
+2440:             indicator_x = shown_rect.x + (5 if compact_card else 7)
+2441:             indicator_y = shown_rect.y + (5 if compact_card else 8)
+2442:             pygame.draw.rect(layer, indicator_color, (indicator_x, indicator_y, indicator_size, indicator_size))
+2443:             name_color = (15, 25, 35) if found else (75, 75, 75)
+2444:             name_surface = name_font.render(item_name, True, name_color)
+2445:             name_left = shown_rect.x + (13 if compact_card else 19)
+2446:             if name_surface.get_width() > shown_rect.width - (name_left - shown_rect.x) - 5:
+2447:                 name_surface = pygame.font.SysFont("Arial", max(7, name_size - 1), bold=True).render(item_name, True, name_color)
+2448:             name_y = shown_rect.y + (3 if compact_card else 5)
+2449:             layer.blit(name_surface, (name_left, name_y))
+2450:             status_surface = status_font.render(status_text, True, status_color)
+2451:             if status_surface.get_width() > shown_rect.width - 10:
+2452:                 status_surface = pygame.font.SysFont("Arial", max(7, status_size - 1), bold=True).render(status_text, True, status_color)
+2453:             status_bottom_pad = 2 if compact_card else 4
+2454:             layer.blit(status_surface, (shown_rect.x + 5, shown_rect.bottom - status_surface.get_height() - status_bottom_pad))
+2455: 
+2456:         footer = pygame.font.SysFont("Courier New", 10, bold=True).render(
+2457:             "ESC / X — ЗАКРЫТЬ АРХИВ", True, (35, 35, 80)
+2458:         )
+2459:         layer.blit(footer, footer.get_rect(center=(panel_w // 2, footer_y)))
+2460: 
+2461:         # Animated arcade scan marker along the inner bottom edge.
+2462:         if visibility > 0.45:
+2463:             scan_span = max(1, panel_w - 30)
+2464:             scan_x = 12 + int((now * 125) % scan_span)
+2465:             pygame.draw.line(layer, (0, 125, 45), (scan_x, panel_h - 5), (min(panel_w - 8, scan_x + 18), panel_h - 5), 2)
+2466: 
+2467:         scaled = pygame.transform.scale(layer, (draw_w, draw_h))
+2468:         scaled.set_alpha(max(0, min(255, int(255 * visibility))))
+2469:         actual_rect = scaled.get_rect(
+2470:             center=(final_panel.centerx, final_panel.centery + int((1.0 - opening_ease) * 16))
+2471:         )
+2472:         shadow = pygame.Surface((draw_w + 10, draw_h + 10), pygame.SRCALPHA)
+2473:         pygame.draw.rect(
+2474:             shadow, (0, 0, 0, int(100 * visibility)),
+2475:             pygame.Rect(4, 4, draw_w, draw_h),
+2476:         )
+2477:         surface.blit(shadow, (actual_rect.x - 4, actual_rect.y + 1))
+2478:         surface.blit(scaled, actual_rect)
+2479:         self.event_collection_window_rect = final_panel
+2480:         self.event_collection_close_rect = pygame.Rect(
+2481:             actual_rect.x + int(close_local.x * scale),
+2482:             actual_rect.y + int(close_local.y * scale),
+2483:             max(1, int(close_local.width * scale)),
+2484:             max(1, int(close_local.height * scale)),
+2485:         )
+
+--- _draw_admin_panel: lines 2487-2810 ---
+2487:     def _draw_admin_panel(self, surface):
+2488:         self.admin_button_rects = {}
+2489:         self.admin_tab_rects = {}
+2490:         if not self.admin_panel_open:
+2491:             return
+2492: 
+2493:         w, h = surface.get_size()
+2494:         shade = pygame.Surface((w, h), pygame.SRCALPHA)
+2495:         shade.fill((0, 0, 0, 150))
+2496:         surface.blit(shade, (0, 0))
+2497: 
+2498:         panel_w = min(720, w - 32)
+2499:         panel_h = min(752 if self.admin_panel_tab == "events" else 620 if self.admin_panel_tab == "logs" else 500, h - 16)
+2500:         panel = pygame.Rect((w - panel_w) // 2, (h - panel_h) // 2, panel_w, panel_h)
+2501:         self.admin_panel_rect = panel
+2502:         pygame.draw.rect(surface, (0, 0, 0), panel.move(5, 6))
+2503:         pygame.draw.rect(surface, (192, 192, 192), panel)
+2504:         pygame.draw.rect(surface, (255, 255, 255), panel, 2)
+2505:         pygame.draw.rect(surface, (128, 128, 128), panel, 1)
+2506: 
+2507:         title_rect = pygame.Rect(panel.x + 3, panel.y + 3, panel.width - 6, 30)
+2508:         pygame.draw.rect(surface, (0, 0, 128), title_rect)
+2509:         title_font = pygame.font.SysFont("Arial", 18, bold=True)
+2510:         title = title_font.render("PALCHIK - ADMIN PANEL", True, (255, 255, 255))
+2511:         surface.blit(title, (title_rect.x + 10, title_rect.y + 5))
+2512: 
+2513:         tabs = [
+2514:             ("overview", "ОБЗОР"),
+2515:             ("phases", "ФАЗЫ"),
+2516:             ("minigames", "МИНИ-ИГРЫ"),
+2517:             ("events", "СОБЫТИЯ"),
+2518:             ("shop", "МАГАЗИН"),
+2519:             ("debug", "ОТЛАДКА"),
+2520:             ("logs", "ЖУРНАЛ"),
+2521:         ]
+2522:         tab_gap = 5
+2523:         tab_left = panel.x + 14
+2524:         tab_top = panel.y + 42
+2525:         tab_width = (panel.width - 28 - tab_gap * (len(tabs) - 1)) // len(tabs)
+2526:         tab_font = pygame.font.SysFont("Arial", 14, bold=True)
+2527:         for index, (tab_id, label) in enumerate(tabs):
+2528:             rect = pygame.Rect(tab_left + index * (tab_width + tab_gap), tab_top, tab_width, 32)
+2529:             self.admin_tab_rects[tab_id] = rect
+2530:             selected = self.admin_panel_tab == tab_id
+2531:             fill = (0, 0, 128) if selected else (212, 208, 200)
+2532:             text_color = (255, 255, 255) if selected else (25, 25, 25)
+2533:             pygame.draw.rect(surface, (80, 80, 80), rect.move(1, 2))
+2534:             pygame.draw.rect(surface, fill, rect)
+2535:             pygame.draw.line(surface, (255, 255, 255), rect.topleft, (rect.right - 1, rect.top), 2)
+2536:             pygame.draw.line(surface, (255, 255, 255), rect.topleft, (rect.left, rect.bottom - 1), 2)
+2537:             pygame.draw.line(surface, (80, 80, 80), (rect.left, rect.bottom - 1), (rect.right - 1, rect.bottom - 1), 2)
+2538:             label_surface = tab_font.render(label, True, text_color)
+2539:             surface.blit(label_surface, label_surface.get_rect(center=rect.center))
+2540: 
+2541:         body_left = panel.x + 20
+2542:         body_top = panel.y + 92
+2543:         body_width = panel.width - 40
+2544:         body_bottom = panel.bottom - 62
+2545:         body_height = body_bottom - body_top
+2546:         body = pygame.Rect(body_left, body_top, body_width, body_height)
+2547:         pygame.draw.rect(surface, (245, 245, 245), body)
+2548:         pygame.draw.rect(surface, (128, 128, 128), body, 1)
+2549: 
+2550:         heading_font = pygame.font.SysFont("Arial", 20, bold=True)
+2551:         text_font = pygame.font.SysFont("Arial", 16)
+2552:         small_font = pygame.font.SysFont("Arial", 14)
+2553:         button_font = pygame.font.SysFont("Arial", 16, bold=True)
+2554:         heading_by_tab = {
+2555:             "overview": "СОСТОЯНИЕ ИГРЫ",
+2556:             "phases": "ТЕСТИРОВАНИЕ ФАЗ",
+2557:             "minigames": "ЗАПУСК МИНИ-ИГР",
+2558:             "events": "ТЕСТИРОВАНИЕ СОБЫТИЙ",
+2559:             "shop": "МАГАЗИН",
+2560:             "debug": "ОТЛАДОЧНЫЕ ИНСТРУМЕНТЫ",
+2561:             "logs": "ЖУРНАЛ ОШИБОК И СОБЫТИЙ",
+2562:         }
+2563:         heading_surface = heading_font.render(heading_by_tab[self.admin_panel_tab], True, (20, 30, 55))
+2564:         surface.blit(heading_surface, (body.x + 18, body.y + 14))
+2565:         pygame.draw.line(surface, (190, 190, 190),
+2566:                          (body.x + 18, body.y + 46), (body.right - 18, body.y + 46), 1)
+2567: 
+2568:         def draw_button(action, label, column, row, enabled=True, top_offset=62, row_height=52, button_height=40):
+2569:             gap_x = 12
+2570:             left = body.x + 18
+2571:             col_width = (body.width - 36 - gap_x) // 2
+2572:             top = body.y + top_offset
+2573:             rect = pygame.Rect(left + column * (col_width + gap_x), top + row * row_height, col_width, button_height)
+2574:             self.admin_button_rects[action] = rect
+2575:             fill = (212, 208, 200) if enabled else (175, 175, 175)
+2576:             text_color = (20, 20, 20) if enabled else (95, 95, 95)
+2577:             pygame.draw.rect(surface, (90, 90, 90), rect.move(2, 2))
+2578:             pygame.draw.rect(surface, fill, rect)
+2579:             pygame.draw.line(surface, (255, 255, 255), rect.topleft, (rect.right - 1, rect.top), 2)
+2580:             pygame.draw.line(surface, (255, 255, 255), rect.topleft, (rect.left, rect.bottom - 1), 2)
+2581:             pygame.draw.line(surface, (80, 80, 80), (rect.left, rect.bottom - 1), (rect.right - 1, rect.bottom - 1), 2)
+2582:             pygame.draw.line(surface, (80, 80, 80), (rect.right - 1, rect.top), (rect.right - 1, rect.bottom - 1), 2)
+2583:             rendered = button_font.render(label, True, text_color)
+2584:             if rendered.get_width() > rect.width - 12:
+2585:                 rendered = small_font.render(label, True, text_color)
+2586:             surface.blit(rendered, rendered.get_rect(center=rect.center))
+2587: 
+2588:         def draw_wrapped_text(text, x, y, max_width, font, color, max_lines=2):
+2589:             words = str(text).split()
+2590:             lines = []
+2591:             line = ""
+2592:             for word in words:
+2593:                 candidate = word if not line else line + " " + word
+2594:                 if font.size(candidate)[0] <= max_width or not line:
+2595:                     line = candidate
+2596:                 else:
+2597:                     lines.append(line)
+2598:                     line = word
+2599:             if line:
+2600:                 lines.append(line)
+2601:             line_height = font.get_linesize() + 1
+2602:             for line_index, line_text in enumerate(lines[:max_lines]):
+2603:                 rendered = font.render(line_text, True, color)
+2604:                 surface.blit(rendered, (x, y + line_index * line_height))
+2605: 
+2606:         phase_enabled = self._admin_phase_controls_available()
+2607:         game_enabled = phase_enabled
+2608: 
+2609:         if self.admin_panel_tab == "overview":
+2610:             player_name = (self.player_name or "—").strip() or "—"
+2611:             phase_name = self.game_logic.get_phase() if self.current_screen == "game" else "МЕНЮ"
+2612:             info_lines = [
+2613:                 f"Профиль: {player_name[:28]}",
+2614:                 f"Состояние: {phase_name}",
+2615:                 f"Очки: {self.game_logic.score:,}    Всего кликов: {self.game_logic.total_clicks:,}",
+2616:             ]
+2617:             for index, line in enumerate(info_lines):
+2618:                 rendered = text_font.render(line, True, (35, 35, 35))
+2619:                 surface.blit(rendered, (body.x + 20, body.y + 62 + index * 28))
+2620:             draw_button("new_game", "НОВАЯ ИГРА С НАЧАЛА", 0, 2, True)
+2621:             draw_button("menu", "В ГЛАВНОЕ МЕНЮ", 1, 2, True)
+2622: 
+2623:         elif self.admin_panel_tab == "phases":
+2624:             phase_buttons = [
+2625:                 ("phase_0", "ФАЗА 0 · 0"),
+2626:                 ("phase_1", "ФАЗА 1 · 1500"),
+2627:                 ("phase_2", "ФАЗА 2 · 2000"),
+2628:                 ("phase_3", "ФАЗА 3 · 2500"),
+2629:                 ("phase_4", "ФАЗА 4 · 2800"),
+2630:                 ("final", "ФИНАЛ · 3000"),
+2631:             ]
+2632:             for index, (action, label) in enumerate(phase_buttons):
+2633:                 draw_button(action, label, index % 2, index // 2, phase_enabled)
+2634: 
+2635:         elif self.admin_panel_tab == "minigames":
+2636:             registry = self._admin_minigame_registry()
+2637:             note = small_font.render(
+2638:                 "Запускаются штатные игровые сценарии; после запуска панель закроется.",
+2639:                 True, (55, 55, 55),
+2640:             )
+2641:             surface.blit(note, (body.x + 20, body.y + 54))
+2642:             game_items = list(registry.items())
+2643:             for index, (game_id, definition) in enumerate(game_items):
+2644:                 column = index % 2
+2645:                 row = index // 2
+2646:                 draw_button(
+2647:                     f"minigame_{game_id}", definition["label"],
+2648:                     column, row, game_enabled, top_offset=82, row_height=86,
+2649:                 )
+2650:                 col_width = (body.width - 36 - 12) // 2
+2651:                 description_x = body.x + 18 + column * (col_width + 12) + 2
+2652:                 description_y = body.y + 82 + row * 86 + 44
+2653:                 draw_wrapped_text(
+2654:                     definition["description"], description_x, description_y,
+2655:                     col_width - 10, small_font, (65, 65, 65), max_lines=2,
+2656:                 )
+2657:             # Keep the reset action aligned beside the third mini-game, not alone below it.
+2658:             draw_button(
+2659:                 "minigame_reset", "СБРОСИТЬ ТЕСТ", 1, 1, game_enabled,
+2660:                 top_offset=82, row_height=86,
+2661:             )
+2662: 
+2663:         elif self.admin_panel_tab == "events":
+2664:             definition = self._admin_event_registry()["EVT_001_ROACH_ATTACK"]
+2665:             draw_wrapped_text(
+2666:                 "EVT_001_ROACH_ATTACK · " + definition["label"],
+2667:                 body.x + 20, body.y + 56, body.width - 40,
+2668:                 small_font, (45, 45, 45), max_lines=1,
+2669:             )
+2670:             draw_wrapped_text(
+2671:                 definition["description"],
+2672:                 body.x + 20, body.y + 76, body.width - 40,
+2673:                 small_font, (65, 65, 65), max_lines=2,
+2674:             )
+2675:             draw_button("event_trigger_EVT_001_ROACH_ATTACK", "TRIGGER", 0, 0, game_enabled, top_offset=118, row_height=54)
+2676:             draw_button("event_stop_EVT_001_ROACH_ATTACK", "STOP", 1, 0, True, top_offset=118, row_height=54)
+2677:             draw_button("event_reset_EVT_001_ROACH_ATTACK", "RESET", 0, 1, True, top_offset=118, row_height=54)
+2678:             draw_button("event_inspect_EVT_001_ROACH_ATTACK", "INSPECT", 1, 1, True, top_offset=118, row_height=54)
+2679:             inspect_text = self._managed_event_inspect(
+2680:                 "EVT_001_ROACH_ATTACK", self.game_logic.inspect_roach_attack()
+2681:             )
+2682:             self.admin_event_inspect_text = inspect_text
+2683:             draw_wrapped_text(
+2684:                 inspect_text, body.x + 20, body.y + 222, body.width - 40,
+2685:                 small_font, (45, 45, 45), max_lines=2,
+2686:             )
+2687:             pygame.draw.line(surface, (190, 190, 190),
+2688:                              (body.x + 18, body.y + 252), (body.right - 18, body.y + 252), 1)
+2689:             definition_2 = self._admin_event_registry()["EVT_002_WORD_SHOCK"]
+2690:             draw_wrapped_text("EVT_002_WORD_SHOCK · " + definition_2["label"],
+2691:                               body.x + 20, body.y + 258, body.width - 40,
+2692:                               small_font, (45, 45, 45), max_lines=1)
+2693:             draw_wrapped_text(definition_2["description"],
+2694:                               body.x + 20, body.y + 278, body.width - 40,
+2695:                               small_font, (65, 65, 65), max_lines=1)
+2696:             draw_button("event_trigger_EVT_002_WORD_SHOCK", "TRIGGER", 0, 0, game_enabled, top_offset=300, row_height=44)
+2697:             draw_button("event_stop_EVT_002_WORD_SHOCK", "STOP", 1, 0, True, top_offset=300, row_height=44)
+2698: 
+2699:             definition_3 = self._admin_event_registry()["EVT_003_PLEASE_DONT_TOUCH"]
+2700:             draw_wrapped_text(
+2701:                 "EVT_003_PLEASE_DONT_TOUCH · " + definition_3["label"],
+2702:                 body.x + 20, body.y + 346, body.width - 40,
+2703:                 small_font, (45, 45, 45), max_lines=1,
+2704:             )
+2705:             draw_wrapped_text(
+2706:                 "REAL TRIGGER расходует попытку фазы. SANDBOX можно повторять без изменения сохранений.",
+2707:                 body.x + 20, body.y + 366, body.width - 40,
+2708:                 small_font, (65, 65, 65), max_lines=2,
+2709:             )
+2710:             current_phase = self.game_logic.get_phase()
+2711:             phase_used = self.evt003_runtime.ledger.has_attempted_phase(current_phase)
+2712:             real_allowed, real_reason = self.evt003_runtime.can_start(current_phase)
+2713:             real_enabled = game_enabled and self.evt003_state is None and real_allowed
+2714:             draw_button(
+2715:                 "event_trigger_EVT_003_PLEASE_DONT_TOUCH", "REAL TRIGGER",
+2716:                 0, 0, real_enabled, top_offset=408, row_height=44,
+2717:             )
+2718:             real_reason_text = (
+2719:                 f"Реальная попытка в {current_phase} уже использована." if phase_used
+2720:                 else (f"Недоступно: {real_reason}" if real_reason else "Реальный запуск расходует попытку и применяет последствия.")
+2721:             )
+2722:             draw_wrapped_text(real_reason_text, body.x + 20, body.y + 452, body.width - 40,
+2723:                               small_font, (125, 55, 45) if phase_used else (65, 65, 65), max_lines=1)
+2724:             pygame.draw.line(surface, (190, 190, 190),
+2725:                              (body.x + 18, body.y + 472), (body.right - 18, body.y + 472), 1)
+2726:             col_width = (body.width - 36 - 12) // 2
+2727:             draw_wrapped_text("SANDBOX · TEST PHASES · ESC CANCEL",
+2728:                               body.x + 20, body.y + 477, col_width - 8,
+2729:                               small_font, (25, 65, 45), max_lines=1)
+2730:             draw_button(
+2731:                 "event_reset_sandbox_EVT_003_PLEASE_DONT_TOUCH", "RESET TEST DATA",
+2732:                 1, 0, True, top_offset=474, row_height=26, button_height=24,
+2733:             )
+2734:             sandbox_phases = (
+2735:                 ("phase_0", "TEST PHASE 0"), ("phase_1", "TEST PHASE 1"),
+2736:                 ("phase_2", "TEST PHASE 2"), ("phase_3", "TEST PHASE 3"),
+2737:                 ("phase_4", "TEST PHASE 4"), ("final", "TEST FINAL"),
+2738:             )
+2739:             for index, (phase_id, label) in enumerate(sandbox_phases):
+2740:                 sandbox_allowed, _sandbox_reason = self.evt003_runtime.can_start(phase_id, sandbox=True)
+2741:                 enabled = game_enabled and self.evt003_state is None and sandbox_allowed
+2742:                 draw_button(
+2743:                     "event_test_EVT_003_PLEASE_DONT_TOUCH_" + phase_id, label,
+2744:                     index % 2, index // 2, enabled, top_offset=502, row_height=30, button_height=26,
+2745:                 )
+2746: 
+2747:         elif self.admin_panel_tab == "logs":
+2748:             draw_button("logs_open_file", "ОТКРЫТЬ PALCHIK.LOG", 0, 0, True, top_offset=62)
+2749:             path_text = "Файл: " + str(self.log_file_path)
+2750:             draw_wrapped_text(path_text, body.x + 20, body.y + 108, body.width - 40,
+2751:                               small_font, (55, 55, 55), max_lines=2)
+2752:             entries = get_recent_log_entries(6, minimum_level="WARNING")
+2753:             if not entries:
+2754:                 draw_wrapped_text("Ошибок и предупреждений в текущем сеансе пока нет.",
+2755:                                   body.x + 20, body.y + 158, body.width - 40,
+2756:                                   text_font, (55, 85, 60), max_lines=2)
+2757:             else:
+2758:                 draw_wrapped_text("ПОСЛЕДНИЕ ПРЕДУПРЕЖДЕНИЯ И ОШИБКИ:",
+2759:                                   body.x + 20, body.y + 158, body.width - 40,
+2760:                                   small_font, (35, 35, 35), max_lines=1)
+2761:                 y = body.y + 183
+2762:                 for entry in reversed(entries):
+2763:                     color = (150, 35, 35) if entry["level"] in ("ERROR", "CRITICAL") else (120, 90, 35)
+2764:                     line = f"{entry['time']} [{entry['level']}] {entry['logger']}: {entry['message']}"
+2765:                     draw_wrapped_text(line, body.x + 20, y, body.width - 40,
+2766:                                       small_font, color, max_lines=2)
+2767:                     y += 38
+2768:             draw_wrapped_text("Полные traceback находятся в palchik.log и его ротационных копиях.",
+2769:                               body.x + 20, body.bottom - 34, body.width - 40,
+2770:                               small_font, (65, 65, 65), max_lines=1)
+2771: 
+2772:         elif self.admin_panel_tab == "shop":
+2773:             shop_lines = [
+2774:                 "РАЗДЕЛ ПОДГОТОВЛЕН ДЛЯ БУДУЩЕГО МАГАЗИНА.",
+2775:                 "Здесь будут подключены каталог товаров, валюта, покупки",
+2776:                 "и инвентарь игрока. Функции пока не реализованы.",
+2777:             ]
+2778:             for index, line in enumerate(shop_lines):
+2779:                 rendered = text_font.render(line, True, (45, 45, 45))
+2780:                 surface.blit(rendered, (body.x + 22, body.y + 72 + index * 30))
+2781: 
+2782:         elif self.admin_panel_tab == "debug":
+2783:             draw_button("debug", "ОТЛАДКА: " + ("ВКЛ" if self.debug_mode else "ВЫКЛ"), 0, 0, True)
+2784:             draw_button("effects", "ЭФФЕКТЫ: " + ("ВКЛ" if self.effects_enabled else "ВЫКЛ"), 1, 0, True)
+2785:             draw_button("profiler", "ПРОФИЛИРОВАНИЕ 10 СЕК", 0, 1, True)
+2786:             draw_button("secret_force_open", "ОТКРЫТЬ ПОЛЕ", 1, 1, True)
+2787:             draw_button("secret_test_success", "ТЕСТ: ВЕРНЫЙ КОД", 0, 2, True)
+2788:             draw_button("secret_test_failure", "ТЕСТ: ОШИБКА", 1, 2, True)
+2789:             draw_button("secret_clear_input", "СБРОСИТЬ ПОЛЕ", 0, 3, True)
+2790:             draw_button("secret_reset_collection", "СБРОСИТЬ ДОСТУП", 1, 3, True)
+2791:             state_text = (
+2792:                 f"Фиксированный код: {SECRET_ACCESS_CODE} | Поле: {'ОТКРЫТО' if self.secret_input_open else 'ЗАКРЫТО'} | "
+2793:                 f"Коллекция: {'ОТКРЫТА' if self.event_collection_unlocked else 'ЗАКРЫТА'}"
+2794:             )
+2795:             draw_wrapped_text(state_text, body.x + 20, body.y + 286, body.width - 40,
+2796:                               small_font, (45, 45, 45), max_lines=2)
+2797: 
+2798:         close_rect = pygame.Rect(panel.right - 174, panel.bottom - 48, 154, 34)
+2799:         self.admin_button_rects["close"] = close_rect
+2800:         pygame.draw.rect(surface, (90, 90, 90), close_rect.move(2, 2))
+2801:         pygame.draw.rect(surface, (212, 208, 200), close_rect)
+2802:         pygame.draw.line(surface, (255, 255, 255), close_rect.topleft, (close_rect.right - 1, close_rect.top), 2)
+2803:         pygame.draw.line(surface, (255, 255, 255), close_rect.topleft, (close_rect.left, close_rect.bottom - 1), 2)
+2804:         pygame.draw.line(surface, (80, 80, 80), (close_rect.left, close_rect.bottom - 1), (close_rect.right - 1, close_rect.bottom - 1), 2)
+2805:         pygame.draw.line(surface, (80, 80, 80), (close_rect.right - 1, close_rect.top), (close_rect.right - 1, close_rect.bottom - 1), 2)
+2806:         close_text = button_font.render("ЗАКРЫТЬ", True, (20, 20, 20))
+2807:         surface.blit(close_text, close_text.get_rect(center=close_rect.center))
+2808: 
+2809:         footer = small_font.render("F2 / ESC · закрыть панель", True, (45, 45, 45))
+2810:         surface.blit(footer, (panel.x + 18, panel.bottom - 43))
+
+--- _handle_admin_panel_event: lines 2812-2932 ---
+2812:     def _handle_admin_panel_event(self, event):
+2813:         if not self.admin_panel_open or event.type != pygame.MOUSEBUTTONDOWN or event.button != 1:
+2814:             return False
+2815:         screen_w, screen_h = self.screen.get_size()
+2816:         tex_w, tex_h = self.screen_texture.size
+2817:         pos = (int(event.pos[0] * tex_w / max(1, screen_w)),
+2818:                int(event.pos[1] * tex_h / max(1, screen_h)))
+2819:         if self.admin_panel_rect and not self.admin_panel_rect.collidepoint(pos):
+2820:             return True
+2821: 
+2822:         for tab_id, rect in self.admin_tab_rects.items():
+2823:             if rect.collidepoint(pos):
+2824:                 self.admin_panel_tab = tab_id
+2825:                 return True
+2826: 
+2827:         for action, rect in self.admin_button_rects.items():
+2828:             if not rect.collidepoint(pos):
+2829:                 continue
+2830:             if action == "close":
+2831:                 self.admin_panel_open = False
+2832:             elif action == "new_game":
+2833:                 self._admin_start_new_game()
+2834:             elif action == "menu":
+2835:                 if self.game_logic.word_shock_active or self.event_lifecycle.is_tracked("EVT_002_WORD_SHOCK"):
+2836:                     self._cancel_managed_word_shock(reason="RETURN_TO_MENU")
+2837:                 if self.game_logic.roach_attack_active or self.event_lifecycle.is_tracked("EVT_001_ROACH_ATTACK"):
+2838:                     self._cancel_managed_roach_attack(reason="RETURN_TO_MENU")
+2839:                 else:
+2840:                     self._stop_roach_audio()
+2841:                 self.admin_panel_open = False
+2842:                 self.intro_slides_active = False
+2843:                 self.name_entry_active = False
+2844:                 self.name_input_scene = None
+2845:                 self.current_screen = "menu"
+2846:                 self.audio_box.stop_music()
+2847:                 self.audio_box.play_menu_music()
+2848:             elif action.startswith("phase_") or action == "final":
+2849:                 if not self._admin_phase_controls_available():
+2850:                     return True
+2851:                 phase_clicks = {
+2852:                     "phase_0": 0, "phase_1": 1500, "phase_2": 2000,
+2853:                     "phase_3": 2500, "phase_4": 2800, "final": 3000,
+2854:                 }
+2855:                 self._admin_set_phase(phase_clicks[action])
+2856:             elif action.startswith("minigame_"):
+2857:                 if not self._admin_phase_controls_available():
+2858:                     return True
+2859:                 game_id = action[len("minigame_"):]
+2860:                 if game_id == "reset":
+2861:                     self._admin_reset_minigame()
+2862:                 else:
+2863:                     self._admin_launch_minigame(game_id)
+2864:             elif action == "event_trigger_EVT_001_ROACH_ATTACK":
+2865:                 self._admin_trigger_event("EVT_001_ROACH_ATTACK")
+2866:             elif action == "event_stop_EVT_001_ROACH_ATTACK":
+2867:                 self._admin_stop_event("EVT_001_ROACH_ATTACK")
+2868:             elif action == "event_reset_EVT_001_ROACH_ATTACK":
+2869:                 self._admin_reset_event("EVT_001_ROACH_ATTACK")
+2870:             elif action == "event_inspect_EVT_001_ROACH_ATTACK":
+2871:                 self._admin_inspect_event("EVT_001_ROACH_ATTACK")
+2872:             elif action == "event_trigger_EVT_002_WORD_SHOCK":
+2873:                 self._admin_trigger_event("EVT_002_WORD_SHOCK")
+2874:             elif action == "event_stop_EVT_002_WORD_SHOCK":
+2875:                 self._admin_stop_event("EVT_002_WORD_SHOCK")
+2876:             elif action == "event_trigger_EVT_003_PLEASE_DONT_TOUCH":
+2877:                 if self._admin_trigger_evt003():
+2878:                     self.admin_panel_open = False
+2879:                     self._show_notification("EVT_003: REAL TRIGGER", duration=1800)
+2880:             elif action.startswith("event_test_EVT_003_PLEASE_DONT_TOUCH_"):
+2881:                 phase_id = action[len("event_test_EVT_003_PLEASE_DONT_TOUCH_"):]
+2882:                 if self._admin_test_evt003(phase_id):
+2883:                     self.admin_panel_open = False
+2884:                     self._show_notification(f"EVT_003 SANDBOX: {phase_id}", duration=1800)
+2885:             elif action == "event_reset_sandbox_EVT_003_PLEASE_DONT_TOUCH":
+2886:                 if self.evt003_state is None:
+2887:                     self.evt003_runtime.reset_sandbox_history()
+2888:                     self._show_notification("EVT_003 sandbox history reset.", duration=1800)
+2889:             elif action == "logs_open_file":
+2890:                 self._open_admin_log_file()
+2891:             elif action == "debug":
+2892:                 self.debug_mode = not self.debug_mode
+2893:             elif action == "effects":
+2894:                 self.effects_enabled = not self.effects_enabled
+2895:             elif action == "profiler":
+2896:                 self.profiler.start(duration=10.0, scenario="admin_panel")
+2897:                 self._show_notification("Профилирование запущено (10 сек)", duration=1500)
+2898:             elif action == "secret_force_open":
+2899:                 self._open_secret_input(force=True)
+2900:                 self.admin_panel_open = False
+2901:                 self._show_notification("ТЕСТ: ПОЛЕ СЕКРЕТНОГО ВВОДА", duration=1500)
+2902:             elif action == "secret_test_success":
+2903:                 self._open_secret_input(force=True)
+2904:                 self.admin_panel_open = False
+2905:                 self._submit_secret_input(SECRET_ACCESS_CODE)
+2906:             elif action == "secret_test_failure":
+2907:                 self._open_secret_input(force=True)
+2908:                 self.admin_panel_open = False
+2909:                 self._submit_secret_input("000000")
+2910:             elif action == "secret_clear_input":
+2911:                 self.secret_input_open = False
+2912:                 self.secret_input_closing = False
+2913:                 self.secret_input_value = ""
+2914:                 self.secret_prompt_session.retry_after_cancel()
+2915:                 self._show_notification("ПОЛЕ СЕКРЕТНОГО ВВОДА СБРОШЕНО", duration=1500)
+2916:             elif action == "secret_reset_collection":
+2917:                 try:
+2918:                     SaveManager.save_event_collection_state(unlocked=False)
+2919:                 except Exception:
+2920:                     self.app_logger.exception("Не удалось сбросить коллекцию событий")
+2921:                     self._show_notification("ОШИБКА СБРОСА КОЛЛЕКЦИИ", duration=1800)
+2922:                 else:
+2923:                     self.event_collection_unlocked = False
+2924:                     self.event_collection_open = False
+2925:                     self.event_collection_closing = False
+2926:                     self.secret_input_open = False
+2927:                     self.secret_input_closing = False
+2928:                     self.secret_input_value = ""
+2929:                     self.secret_prompt_session.begin_session()
+2930:                     self._show_notification("ДОСТУП К КОЛЛЕКЦИИ СБРОШЕН", duration=1800)
+2931:             return True
+2932:         return True
+
+--- _handle_name_entry_events: lines 3028-3061 ---
+3028:     def _handle_name_entry_events(self, event):
+3029:         if not self.name_input_scene:
+3030:             return
+3031:         if event.type == pygame.KEYDOWN:
+3032:             result = self.name_input_scene.handle_keyboard(event)
+3033:             if result == "QUIT":
+3034:                 self.name_entry_active = False
+3035:                 self.name_input_scene = None
+3036:                 self.current_screen = "menu"
+3037:                 self.audio_box.play_menu_music()
+3038:             elif result == "DONE":
+3039:                 self._commit_player_name(self.name_input_scene.buffer)
+3040:         elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+3041:             self.menu_cursor.trigger_click_animation()
+3042:             w, h = self.screen.get_size()
+3043:             mouse_pos = event.pos
+3044:             tex_w, tex_h = self.screen_texture.size
+3045:             pos_x = int(mouse_pos[0] * (tex_w / w))
+3046:             pos_y = int(mouse_pos[1] * (tex_h / h))
+3047:             result = self.name_input_scene.handle_mouse((pos_x, pos_y))
+3048:             if result == "QUIT":
+3049:                 self.name_entry_active = False
+3050:                 self.name_input_scene = None
+3051:                 self.current_screen = "menu"
+3052:                 self.audio_box.play_menu_music()
+3053:             elif result == "DONE":
+3054:                 self._commit_player_name(self.name_input_scene.buffer)
+3055:         elif event.type == pygame.MOUSEMOTION:
+3056:             w, h = self.screen.get_size()
+3057:             mouse_pos = event.pos
+3058:             tex_w, tex_h = self.screen_texture.size
+3059:             pos_x = int(mouse_pos[0] * (tex_w / w))
+3060:             pos_y = int(mouse_pos[1] * (tex_h / h))
+3061:             self.name_input_scene.get_hover((pos_x, pos_y))
+
+--- _handle_game_events: lines 3063-3585 ---
+3063:     def _handle_game_events(self, event):
+3064:         if (self.evt004_runtime is not None and self.evt004_runtime.running
+3065:                 and event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE):
+3066:             self._finish_evt004(cancelled=True, reason="PLAYER_CANCELLED")
+3067:             return
+3068:         if self.game_logic.word_shock_active and event.type != pygame.VIDEORESIZE:
+3069:             self._handle_word_shock_input(event)
+3070:             return
+3071:         if self.secret_input_open and event.type != pygame.VIDEORESIZE:
+3072:             if event.type == pygame.KEYDOWN:
+3073:                 self._handle_secret_input_key(event)
+3074:             elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+3075:                 screen_w, screen_h = self.screen.get_size()
+3076:                 tex_w, tex_h = self.screen_texture.size
+3077:                 mouse_pos = (
+3078:                     int(event.pos[0] * tex_w / max(1, screen_w)),
+3079:                     int(event.pos[1] * tex_h / max(1, screen_h)),
+3080:                 )
+3081:                 close_rect = getattr(self, "secret_input_close_rect", None)
+3082:                 cancel_rect = getattr(self, "secret_input_cancel_rect", None)
+3083:                 ok_rect = getattr(self, "secret_input_ok_rect", None)
+3084:                 if close_rect and close_rect.collidepoint(mouse_pos):
+3085:                     self._cancel_secret_input()
+3086:                 elif cancel_rect and cancel_rect.collidepoint(mouse_pos):
+3087:                     self._cancel_secret_input()
+3088:                 elif ok_rect and ok_rect.collidepoint(mouse_pos):
+3089:                     self._confirm_secret_input()
+3090:             return
+3091:         if self.event_collection_open and event.type == pygame.KEYDOWN:
+3092:             if event.key == pygame.K_ESCAPE:
+3093:                 self._close_event_collection()
+3094:             return
+3095:         if event.type == pygame.VIDEORESIZE:
+3096:             self.screen = pygame.display.set_mode((event.w, event.h), pygame.FULLSCREEN | pygame.DOUBLEBUF | pygame.OPENGL)
+3097:             self._setup_menu_hitboxes()
+3098:             self.game_view.width, self.game_view.height = event.w, event.h
+3099:             self.game_view.recalculate_layout()
+3100:         elif event.type == pygame.MOUSEBUTTONUP and event.button == 1:
+3101:             self.game_logic.timer_scale = 1.0
+3102:             self.game_view.lore_window_dragging = False
+3103:             self.game_view.lore_scroll_dragging = False
+3104:         elif event.type == pygame.MOUSEWHEEL and getattr(self.game_logic, "lore_window_open", False):
+3105:             if not getattr(self.game_logic, "lore_text_viewer_open", False) and not getattr(self.game_logic, "lore_image_viewer_open", False):
+3106:                 screen_w, screen_h = self.screen.get_size()
+3107:                 tex_w, tex_h = self.screen_texture.size
+3108:                 mouse_pos = pygame.mouse.get_pos()
+3109:                 pos = (int(mouse_pos[0] * (tex_w / screen_w)), int(mouse_pos[1] * (tex_h / screen_h)))
+3110:                 if self.game_view.handle_lore_wheel(self.game_logic, pos, event.y):
+3111:                     return
+3112:         elif event.type == pygame.MOUSEMOTION:
+3113:             if self.game_view.lore_window_dragging:
+3114:                 tex_w, tex_h = self.screen_texture.size
+3115:                 screen_w, screen_h = self.screen.get_size()
+3116:                 mouse_tex_x = int(event.pos[0] * (tex_w / screen_w))
+3117:                 mouse_tex_y = int(event.pos[1] * (tex_h / screen_h))
+3118:                 
+3119:                 win_w = int(tex_w * 0.65)
+3120:                 win_h = int(tex_h * 0.55)
+3121:                 base_x = (tex_w - win_w) // 2
+3122:                 base_y = (tex_h - win_h) // 2
+3123:                 
+3124:                 new_x = mouse_tex_x - self.game_view.lore_drag_start_x
+3125:                 new_y = mouse_tex_y - self.game_view.lore_drag_start_y
+3126:                 self.game_view.lore_window_offset_x = new_x - base_x
+3127:                 self.game_view.lore_window_offset_y = new_y - base_y
+3128:                 
+3129:                 self.game_view.lore_window_offset_x = max(-base_x, min(tex_w - win_w - base_x, self.game_view.lore_window_offset_x))
+3130:                 self.game_view.lore_window_offset_y = max(-base_y, min(tex_h - win_h - base_y, self.game_view.lore_window_offset_y))
+3131:             elif getattr(self.game_logic, "lore_window_open", False):
+3132:                 tex_w, tex_h = self.screen_texture.size
+3133:                 screen_w, screen_h = self.screen.get_size()
+3134:                 pos = (int(event.pos[0] * (tex_w / screen_w)), int(event.pos[1] * (tex_h / screen_h)))
+3135:                 self.game_view.handle_lore_motion(self.game_logic, pos)
+3136:             
+3137:         elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+3138:             self.menu_cursor.trigger_click_animation()
+3139:             win_w, win_h = self.screen.get_size()
+3140:             tex_w, tex_h = self.screen_texture.size
+3141:             pos_x = int(event.pos[0] * (tex_w / win_w))
+3142:             pos_y = int(event.pos[1] * (tex_h / win_h))
+3143:             pos = (pos_x, pos_y)
+3144: 
+3145:             # EVT_004 exclusively owns left-click input while the encounter is active.
+3146:             if self._handle_evt004_click(pos):
+3147:                 return
+3148: 
+3149:             if self.event_collection_open:
+3150:                 if self.event_collection_closing:
+3151:                     return
+3152:                 if (self.event_collection_close_rect and self.event_collection_close_rect.collidepoint(pos)):
+3153:                     self._close_event_collection()
+3154:                 elif self.event_collection_window_rect and not self.event_collection_window_rect.collidepoint(pos):
+3155:                     self._close_event_collection()
+3156:                 return
+3157:             if self.event_collection_icon_rect and self.event_collection_icon_rect.collidepoint(pos):
+3158:                 self._open_event_collection()
+3159:                 return
+3160: 
+3161:             hx = getattr(self.game_logic, "hidden_hitbox_x", 0)
+3162:             hy = getattr(self.game_logic, "hidden_hitbox_y", 0)
+3163:             hidden_rect = pygame.Rect(hx - 15, hy - 15, 30, 30)
+3164:             if hidden_rect.collidepoint(pos) and not getattr(self.game_logic, "code_window_open", False):
+3165:                 self.game_logic.code_window_open = True
+3166:                 self.game_logic.input_buffer = [None, None, None]
+3167:                 self.game_logic.current_cell_index = 0
+3168:                 self.game_logic.current_cell_buffer = ""
+3169:                 self.game_logic.system_response_text = ""
+3170:                 self.game_view.code_window_dirty = True
+3171:                 return
+3172:             if getattr(self.game_logic, "code_window_open", False):
+3173:                 close_rect = getattr(self.game_view, "code_close_rect", None)
+3174:                 if close_rect and close_rect.collidepoint(pos):
+3175:                     self._cancel_archive_pin()
+3176:                     return
+3177:                 cancel_rect = getattr(self.game_view, "code_cancel_btn_rect", None)
+3178:                 if cancel_rect and cancel_rect.collidepoint(pos):
+3179:                     self._cancel_archive_pin()
+3180:                     return
+3181:                 if self.code_init_active:
+3182:                     return
+3183:                 ok_rect = getattr(self.game_view, "ok_btn_rect", None)
+3184:                 if ok_rect and ok_rect.collidepoint(pos):
+3185:                     self._submit_archive_pin()
+3186:                     return
+3187:                 for index, field_rect in enumerate(getattr(self.game_view, "code_input_rects", [])):
+3188:                     if field_rect.collidepoint(pos):
+3189:                         self.game_logic.current_cell_index = index
+3190:                         self.game_logic.current_cell_buffer = ""
+3191:                         self.game_logic.input_buffer[index] = None
+3192:                         self.game_view.code_window_dirty = True
+3193:                         return
+3194:                 return
+3195:             if getattr(self.game_logic, "lore_window_open", False):
+3196:                 if hasattr(self.game_view, 'handle_lore_viewer_click'):
+3197:                     if self.game_view.handle_lore_viewer_click(self.game_logic, pos):
+3198:                         return
+3199:                 
+3200:                 lore_rect = getattr(self.game_view, 'lore_win_rect', None)
+3201:                 if not lore_rect:
+3202:                     return
+3203:                 
+3204:                 close_rect = getattr(self.game_view, 'lore_close_rect', None)
+3205:                 if close_rect and close_rect.collidepoint(pos):
+3206:                     self.game_view.handle_lore_click(self.game_logic, pos)
+3207:                     return
+3208: 
+3209:                 if hasattr(self.game_view, "handle_lore_menu_click"):
+3210:                     if self.game_view.handle_lore_menu_click(self.game_logic, pos):
+3211:                         return
+3212: 
+3213:                 header_rect = pygame.Rect(lore_rect.x, lore_rect.y, lore_rect.width, 24)
+3214:                 if header_rect.collidepoint(pos):
+3215:                     if not (close_rect and close_rect.collidepoint(pos)):
+3216:                         self.game_view.lore_window_dragging = True
+3217:                         self.game_view.lore_drag_start_x = pos[0] - lore_rect.x
+3218:                         self.game_view.lore_drag_start_y = pos[1] - lore_rect.y
+3219:                     return
+3220:                 
+3221:                 if hasattr(self.game_view, 'handle_lore_click'):
+3222:                     self.game_view.handle_lore_click(self.game_logic, pos)
+3223:                 return
+3224:             
+3225:             if getattr(self.game_logic, "lore_icon_visible", False):
+3226:                 if hasattr(self.game_view, 'rect_lore_icon') and self.game_view.rect_lore_icon:
+3227:                     if self.game_view.rect_lore_icon.collidepoint(pos):
+3228:                         self.game_logic.lore_window_open = not self.game_logic.lore_window_open
+3229:                         return
+3230:             
+3231:             if self.game_view.rect_back.collidepoint(pos):
+3232:                 if self.game_logic.roach_attack_active or self.event_lifecycle.is_tracked("EVT_001_ROACH_ATTACK"):
+3233:                     self._cancel_managed_roach_attack(reason="BACK_TO_MENU")
+3234:                 else:
+3235:                     self._stop_roach_audio()
+3236:                 self.current_screen = "menu"
+3237:                 self.audio_box.play_menu_music()
+3238:                 return
+3239:             elif self.game_view.rect_wallpaper.collidepoint(pos):
+3240:                 next_index = self.game_logic.wallpaper_index + 1
+3241:                 self.game_logic.set_wallpaper(next_index)
+3242:                 return
+3243:             elif hasattr(self, 'subtitle_rect') and self.subtitle_rect and self.subtitle_rect.collidepoint(pos):
+3244:                 if self.subtitle_state == "waiting_click":
+3245:                     # По упрощённой механике субтитр исчезает мгновенно по клику
+3246:                     self.subtitle_state = "idle"
+3247:                     self.subtitle_state_timer = 0.0
+3248:                     self.subtitle_next_idle_timer = 0.0
+3249:                     self.subtitle_alpha = 0
+3250:                 return
+3251: 
+3252:             if self.game_logic.minigame_active:
+3253:                 for idx, rect in enumerate(self.game_view.rect_sectors):
+3254:                     if rect.collidepoint(pos):
+3255:                         self.game_logic.verify_sector_click(idx)
+3256:                         return
+3257:                 return
+3258:             if (
+3259:                 self.game_logic.roach_attack_active
+3260:                 and not self.game_logic.timer_active
+3261:                 and not self.game_logic.sprite_active
+3262:                 and not self.game_logic.chase_planet_active
+3263:                 and not self.game_logic.fade_screen_active
+3264:                 and self.game_logic.clicks_in_cycle < 10
+3265:             ):
+3266:                 for hitbox_slot, roach_rect in enumerate(self.game_view.roach_hitboxes):
+3267:                     if roach_rect.collidepoint(pos):
+3268:                         roach_index = self.game_view.roach_hitbox_indices[hitbox_slot]
+3269:                         roach_center = roach_rect.center
+3270:                         reward = self.game_logic.squash_roach(roach_index)
+3271:                         if reward:
+3272:                             self.game_view.trigger_roach_squash(roach_center)
+3273:                             self.audio_box.play_roach_attack("squash")
+3274:                             self._sync_managed_roach_attack()
+3275:                         return
+3276: 
+3277:             if self.game_logic.clicks_in_cycle < 10 and not self.game_logic.timer_active and not self.game_logic.fade_screen_active:
+3278:                 if self.game_view.rect_target.collidepoint(pos):
+3279:                     # Отдельный короткий звук взаимодействия с игровым объектом.
+3280:                     self.audio_box.play_game_click()
+3281:                     if self.game_logic.clicks_in_cycle == 0 and not self.secret_input_open:
+3282:                         self.secret_prompt_session.begin_click_cycle()
+3283:                     result = self.game_logic.register_click()
+3284:                     prompt_due = self.secret_prompt_session.register_accepted_click(
+3285:                         result not in ("IGNORE", "JAMMED", "TRAP_TRIGGERED")
+3286:                     )
+3287:                     if result in ("NORMAL", "GHOST_BOOST", "RESISTANCE"):
+3288:                         sequence_result = self.game_logic.record_roach_sequence_click()
+3289:                         if sequence_result == "WORD_SHOCK_TRIGGER":
+3290:                             self._start_word_shock()
+3291:                             return
+3292:                         if sequence_result == "ROACH_TRIGGER":
+3293:                             self._start_roach_attack()
+3294:                             return
+3295:                     if (
+3296:                         prompt_due
+3297:                         and not self.secret_input_open
+3298:                         and not self.game_logic.roach_attack_active
+3299:                         and not self.game_logic.minigame_active
+3300:                         and not self.game_logic.timer_active
+3301:                         and not self.game_logic.sprite_active
+3302:                         and not self.game_logic.chase_planet_active
+3303:                         and not self.game_logic.fade_screen_active
+3304:                         and not self.game_logic.code_window_open
+3305:                         and not self.game_logic.lore_window_open
+3306:                     ):
+3307:                         self._open_secret_input()
+3308:                     if result in ["NORMAL", "LUCKY"]:
+3309:                         self.game_view.trigger_target_animation()
+3310:                         if result == "LUCKY":
+3311:                             self.game_view.trigger_label_animation()
+3312:                     return
+3313:                 else:
+3314:                     now = pygame.time.get_ticks()
+3315:                     if now - getattr(self.game_logic, 'click_phrase_cooldown', 0) > 1500:
+3316:                         phase = self.game_logic.get_phase()
+3317:                         phrase = self.game_logic.get_click_phrase(phase)
+3318:                         if phrase:
+3319:                             self.game_logic.current_click_phrase = phrase
+3320:                             self.game_logic.click_phrase_timer = now + 2000
+3321:                             self.game_logic.click_phrase_cooldown = now
+3322:                             self.game_logic.click_phrase_alpha = 0
+3323:                             self.game_logic.click_phrase_scale = 0.0
+3324:                             self.game_logic.click_phrase_y_offset = 0
+3325:                             self.game_logic.click_phrase_pos = list(pos)
+3326:             else:
+3327:                 if self.game_logic.fade_screen_active:
+3328:                     return
+3329: 
+3330:                 # Проверяем попадание по любой активной планете.
+3331:                 _chase_planet_target_index = None
+3332:                 _chase_planets = getattr(self.game_logic, "chase_planets", [])
+3333: 
+3334:                 if self.game_logic.sprite_active:
+3335:                     if _chase_planets:
+3336:                         for _planet_index, _planet in enumerate(_chase_planets):
+3337:                             _planet_rect = pygame.Rect(
+3338:                                 int(_planet["x"]), int(_planet["y"]), 44, 44
+3339:                             )
+3340:                             if _planet_rect.collidepoint(pos):
+3341:                                 _chase_planet_target_index = _planet_index
+3342:                                 break
+3343:                     else:
+3344:                         _legacy_rect = pygame.Rect(
+3345:                             int(self.game_logic.sprite_x),
+3346:                             int(self.game_logic.sprite_y),
+3347:                             44, 44,
+3348:                         )
+3349:                         if _legacy_rect.collidepoint(pos):
+3350:                             _chase_planet_target_index = -1
+3351: 
+3352:                 if (
+3353:                     (self.game_logic.timer_active or self.game_logic.sprite_active)
+3354:                     and _chase_planet_target_index is None
+3355:                 ):
+3356:                     self.audio_box.play_chase_planet("click")
+3357: 
+3358:                 if self.game_logic.sprite_active:
+3359:                     if _chase_planet_target_index is not None:
+3360:                         self.audio_box.play_chase_planet("catch")
+3361: 
+3362:                         self.game_logic.chase_planets_caught_round += 1
+3363:                         self.game_logic.chase_planets_caught_total += 1
+3364:                         self.game_logic.score += 10
+3365: 
+3366:                         if _chase_planet_target_index == -1:
+3367:                             self.game_logic.chase_planets.clear()
+3368:                         else:
+3369:                             self.game_logic.chase_planets.pop(
+3370:                                 _chase_planet_target_index
+3371:                             )
+3372: 
+3373:                         if self.game_logic.chase_planets:
+3374:                             _first_planet = self.game_logic.chase_planets[0]
+3375:                             self.game_logic.sprite_x = _first_planet["x"]
+3376:                             self.game_logic.sprite_y = _first_planet["y"]
+3377:                             self.game_logic.sprite_active = True
+3378:                             self.game_logic.chase_planet_active = True
+3379:                             return
+3380: 
+3381:                         # Раунд завершается после поимки последней планеты.
+3382:                         self.game_logic.sprite_active = False
+3383:                         self.game_logic.timer_active = False
+3384:                         self.game_logic.timer_clicks = 0
+3385:                         self.game_logic.chase_planet_active = True
+3386: 
+3387:                         self.audio_box.play_chase_planet("victory", queue=True)
+3388: 
+3389:                         phase_key = self.game_logic.get_phase()
+3390:                         earth_data = TRANSLATIONS[self.current_lang]["earth_phases"]
+3391:                         if phase_key not in earth_data:
+3392:                             phase_key = "phase_4"
+3393: 
+3394:                         win_pool = earth_data[phase_key]["win"]
+3395:                         self.game_logic.set_notification(
+3396:                             random.choice(win_pool), duration=5000
+3397:                         )
+3398:                         self.game_logic.notification_color = (46, 204, 113)
+3399:                         self.game_logic.fade_screen_active = True
+3400:                         self.game_logic.fade_start_time = int(time.monotonic() * 1000)
+3401:                         return
+3402:                     else:
+3403:                         now = pygame.time.get_ticks()
+3404:                         if now - getattr(self.game_logic, 'click_phrase_cooldown', 0) > 1500:
+3405:                             phase = self.game_logic.get_phase()
+3406:                             phrase = self.game_logic.get_click_phrase(phase)
+3407:                             if phrase:
+3408:                                 self.game_logic.current_click_phrase = phrase
+3409:                                 self.game_logic.click_phrase_timer = now + 2000
+3410:                                 self.game_logic.click_phrase_cooldown = now
+3411:                                 self.game_logic.click_phrase_alpha = 0
+3412:                                 self.game_logic.click_phrase_scale = 0.0
+3413:                                 self.game_logic.click_phrase_y_offset = 0
+3414:                                 self.game_logic.click_phrase_pos = list(pos)
+3415:                         return
+3416: 
+3417:                 click_phrase_shown = False
+3418: 
+3419:                 if self.game_logic.timer_active:
+3420:                     pbar_center_x = tex_w // 2
+3421:                     pbar_center_y = int(tex_h * 0.48)
+3422: 
+3423:                     click_rect = pygame.Rect(pbar_center_x - 200, pbar_center_y - 22, 400, 44)
+3424:                     
+3425:                     if click_rect.collidepoint(pos) and not self.game_logic.sprite_active:
+3426:                         self.game_logic.timer_clicks += 1
+3427:                         self.game_logic.timer_scale = 0.94
+3428:                         spawn_needed = getattr(self.game_logic, "sprite_spawn_clicks", 3)
+3429:                         if self.game_logic.timer_clicks >= spawn_needed:
+3430:                             self._spawn_chase_planets()
+3431:                         return
+3432:                     else:
+3433:                         click_phrase_shown = True
+3434: 
+3435:                 else:
+3436:                     if self.game_view.rect_instant_wash.collidepoint(pos) and self.game_logic.score >= self.game_logic.upgrade_cost and not self.game_logic.system_jammed:
+3437:                         self.game_logic.wash_hands_instantly()
+3438:                         return
+3439:                     elif self.game_view.rect_free_wash_btn.collidepoint(pos):
+3440:                         if self.game_logic.system_jammed:
+3441:                             if self.game_logic.try_unjam_system():
+3442:                                 self._show_notification("SYSTEM RESET")
+3443:                         else:
+3444:                             self._start_free_clean_flow()
+3445:                         return
+3446:                     else:
+3447:                         click_phrase_shown = True
+3448:                 
+3449:                 if click_phrase_shown:
+3450:                     now = pygame.time.get_ticks()
+3451:                     if now - getattr(self.game_logic, 'click_phrase_cooldown', 0) > 1500:
+3452:                         phase = self.game_logic.get_phase()
+3453:                         phrase = self.game_logic.get_click_phrase(phase)
+3454:                         if phrase:
+3455:                             self.game_logic.current_click_phrase = phrase
+3456:                             self.game_logic.click_phrase_timer = now + 2000
+3457:                             self.game_logic.click_phrase_cooldown = now
+3458:                             self.game_logic.click_phrase_alpha = 0
+3459:                             self.game_logic.click_phrase_scale = 0.0
+3460:                             self.game_logic.click_phrase_y_offset = 0
+3461:                             self.game_logic.click_phrase_pos = list(pos)
+3462:                     return
+3463:         elif event.type == pygame.KEYDOWN:
+3464:             if event.key == pygame.K_BACKQUOTE or (hasattr(event, 'unicode') and event.unicode in ('ё', 'Ё', '`', '~')):
+3465:                 self.debug_mode = not self.debug_mode
+3466:                 self._show_notification(f"DEBUG HITBOXES: {'ON' if self.debug_mode else 'OFF'}", duration=1000)
+3467:                 # Запуск профайлера на 10 секунд
+3468:                 if self.current_screen == "menu":
+3469:                     scenario = "menu"
+3470:                 elif self.current_screen == "game":
+3471:                     if self.game_logic.code_window_open:
+3472:                         scenario = "game_code_window"
+3473:                     elif self.game_logic.lore_window_open:
+3474:                         scenario = "game_lore_window"
+3475:                     elif self.settings_box.is_open:
+3476:                         scenario = "game_settings"
+3477:                     else:
+3478:                         scenario = "gameplay"
+3479:                 else:
+3480:                     scenario = "unknown"
+3481:                 self.profiler.start(duration=10.0, scenario=scenario)
+3482:                 self._show_notification(f"Профилирование запущено (10 сек)", duration=1500)
+3483:             elif event.key == pygame.K_F7:
+3484:                 self.game_logic.total_clicks = 1500
+3485:                 self.game_logic._sync_to_disk()
+3486:                 self.game_logic.horror_cooldown = False
+3487:                 self.game_view.recalculate_layout()
+3488:                 msg = f"CHEAT: Phase 1 (1500 clicks)"
+3489:                 self._show_notification(msg)
+3490:                 self._on_limit_reached()
+3491:             elif event.key == pygame.K_F8:
+3492:                 self.game_logic.total_clicks = 2500
+3493:                 self.game_logic._sync_to_disk()
+3494:                 self.game_logic.horror_cooldown = False
+3495:                 self.game_view.recalculate_layout()
+3496:                 msg = f"CHEAT: Phase 2 (2500 clicks)"
+3497:                 self._show_notification(msg)
+3498:                 self._on_limit_reached()
+3499:             elif event.key == pygame.K_F9:
+3500:                 self.game_logic.cheat_to_paranoia()
+3501:                 self.game_logic.horror_cooldown = False
+3502:                 self.game_view.recalculate_layout()
+3503:                 new_clicks = self.game_logic.total_clicks
+3504:                 phase = self._get_phase_name(new_clicks)
+3505:                 msg = f"CHEAT: jumped to {phase} ({new_clicks} clicks)"
+3506:                 self._show_notification(msg)
+3507:                 self._on_limit_reached()
+3508:             elif event.key == pygame.K_F10:
+3509:                 self.game_logic.total_clicks = 2800
+3510:                 self.game_logic._sync_to_disk()
+3511:                 self.game_logic.horror_cooldown = False
+3512:                 self.game_view.recalculate_layout()
+3513:                 msg = f"CHEAT: Phase 4 (2800 clicks)"
+3514:                 self._show_notification(msg)
+3515:                 self._on_limit_reached()
+3516:             elif event.key == pygame.K_F11:
+3517:                 self.game_logic.total_clicks = 3000
+3518:                 self.game_logic._sync_to_disk()
+3519:                 self.game_logic.horror_cooldown = False
+3520:                 self.game_view.recalculate_layout()
+3521:                 msg = f"CHEAT: Final Phase (3000 clicks)"
+3522:                 self._show_notification(msg)
+3523:                 self._on_limit_reached()
+3524:             elif event.key == pygame.K_F12:
+3525:                 self._reset_progress()
+3526:             elif event.key == pygame.K_F5:
+3527:                 self.effects_enabled = not self.effects_enabled
+3528:                 self._show_notification(f"EFFECTS: {'ON' if self.effects_enabled else 'OFF'}", duration=1500)
+3529:             elif event.key == pygame.K_F3:
+3530:                 if self.current_screen == "menu":
+3531:                     scenario = "menu"
+3532:                 elif self.current_screen == "game":
+3533:                     if self.game_logic.code_window_open:
+3534:                         scenario = "game_code_window"
+3535:                     elif self.game_logic.lore_window_open:
+3536:                         scenario = "game_lore_window"
+3537:                     elif self.settings_box.is_open:
+3538:                         scenario = "game_settings"
+3539:                     else:
+3540:                         scenario = "gameplay"
+3541:                 else:
+3542:                     scenario = "unknown"
+3543:                 self.profiler.start(duration=10.0, scenario=scenario)
+3544:                 self._show_notification(f"Профилирование запущено (10 сек)", duration=1500)
+3545:             elif (getattr(self.game_logic, "lore_window_open", False)
+3546:                   and not getattr(self.game_logic, "code_window_open", False)
+3547:                   and not getattr(self.game_logic, "lore_text_viewer_open", False)
+3548:                   and not getattr(self.game_logic, "lore_image_viewer_open", False)
+3549:                   and self.game_view.handle_lore_key(self.game_logic, event)):
+3550:                 return
+3551:             elif getattr(self.game_logic, "code_window_open", False):
+3552:                 logic = self.game_logic
+3553:                 if event.key == pygame.K_ESCAPE:
+3554:                     self._cancel_archive_pin()
+3555:                     return
+3556:                 if self.code_init_active:
+3557:                     return
+3558:                 cache_invalidated = False
+3559:                 if event.key == pygame.K_BACKSPACE:
+3560:                     if logic.current_cell_buffer:
+3561:                         logic.current_cell_buffer = logic.current_cell_buffer[:-1]
+3562:                         cache_invalidated = True
+3563:                     elif logic.current_cell_index > 0:
+3564:                         logic.current_cell_index -= 1
+3565:                         logic.input_buffer[logic.current_cell_index] = None
+3566:                         logic.current_cell_buffer = ""
+3567:                         cache_invalidated = True
+3568:                 elif event.key in (pygame.K_RETURN, pygame.K_KP_ENTER):
+3569:                     self._submit_archive_pin()
+3570:                     return
+3571:                 else:
+3572:                     digit = None
+3573:                     if pygame.K_0 <= event.key <= pygame.K_9:
+3574:                         digit = str(event.key - pygame.K_0)
+3575:                     elif pygame.K_KP0 <= event.key <= pygame.K_KP9:
+3576:                         digit = str(event.key - pygame.K_KP0)
+3577:                     if digit is not None and logic.current_cell_index < 3 and len(logic.current_cell_buffer) < 2:
+3578:                         logic.current_cell_buffer += digit
+3579:                         cache_invalidated = True
+3580:                         if len(logic.current_cell_buffer) == 2:
+3581:                             logic.input_buffer[logic.current_cell_index] = int(logic.current_cell_buffer)
+3582:                             logic.current_cell_index += 1
+3583:                             logic.current_cell_buffer = ""
+3584:                 if cache_invalidated:
+3585:                     self.game_view.code_window_dirty = True
+
+--- _handle_menu_events: lines 3840-3851 ---
+3840:     def _handle_menu_events(self, event):
+3841:         if event.type == pygame.VIDEORESIZE:
+3842:             self.screen = pygame.display.set_mode((event.w, event.h), pygame.FULLSCREEN | pygame.DOUBLEBUF | pygame.OPENGL)
+3843:             self._setup_menu_hitboxes()
+3844:             self.game_view.width, self.game_view.height = event.w, event.h
+3845:             self.game_view.recalculate_layout()
+3846:         elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+3847:             self.menu_cursor.trigger_click_animation()
+3848:             if self.settings_box.is_open:
+3849:                 self._handle_settings_click(event.pos)
+3850:             else:
+3851:                 self.menu_cursor.handle_click(event.pos, event.pos)
+
+--- _handle_evt003_event: lines 4178-4214 ---
+4178:     def _handle_evt003_event(self, event):
+4179:         """Exclusive input path while the check, animation or Win95 dialog is active."""
+4180:         if event.type == pygame.VIDEORESIZE:
+4181:             self.screen = pygame.display.set_mode(
+4182:                 (event.w, event.h), pygame.FULLSCREEN | pygame.DOUBLEBUF | pygame.OPENGL
+4183:             )
+4184:             self._setup_menu_hitboxes()
+4185:             self.game_view.width, self.game_view.height = event.w, event.h
+4186:             self.game_view.recalculate_layout()
+4187:             return
+4188:         if self.evt003_is_sandbox and event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
+4189:             self._evt003_cancel_sandbox()
+4190:             return
+4191:         if self.evt003_state == "RUNNING":
+4192:             if event.type in (pygame.MOUSEBUTTONDOWN, pygame.MOUSEWHEEL):
+4193:                 # At/after the 30-second deadline the check has already succeeded;
+4194:                 # do not turn a late event-queue delivery into a false violation.
+4195:                 if time.monotonic() - self.evt003_started_at >= self.evt003_runtime.duration_seconds:
+4196:                     self._update_evt003()
+4197:                 else:
+4198:                     self._evt003_violation()
+4199:             return
+4200:         if self.evt003_state in ("FORGIVENESS_DIALOG", "PENDING_NOTICE"):
+4201:             acknowledge = event.type == pygame.KEYDOWN and event.key in (pygame.K_RETURN, pygame.K_KP_ENTER, pygame.K_SPACE)
+4202:             if event.type == pygame.MOUSEBUTTONDOWN and self.evt003_ok_rect:
+4203:                 win_w, win_h = self.screen.get_size()
+4204:                 tex_w, tex_h = self.screen_texture.size
+4205:                 pos = (
+4206:                     int(event.pos[0] * tex_w / max(1, win_w)),
+4207:                     int(event.pos[1] * tex_h / max(1, win_h)),
+4208:                 )
+4209:                 acknowledge = self.evt003_ok_rect.collidepoint(pos)
+4210:             if acknowledge:
+4211:                 self._evt003_acknowledge_dialog()
+4212:             return
+4213:         # The punishment animation is intentionally non-interactive.
+4214:         return
+
+=== CATALOG PUBLIC API ===
+
+--- EventCatalogError: lines 8-9 ---
+8: class EventCatalogError(ValueError):
+9:     pass
+
+--- EventCatalog: lines 11-65 ---
+11: class EventCatalog:
+12:     def __init__(self, definitions: Iterable[EventDefinition], config_root: str | Path):
+13:         self._definitions: dict[str, EventDefinition] = {}
+14:         self._configs: dict[str, dict[str, Any]] = {}
+15:         self.config_root = Path(config_root)
+16:         for definition in definitions:
+17:             if not definition.event_id or definition.event_id in self._definitions:
+18:                 raise EventCatalogError(f"Empty or duplicate event ID: {definition.event_id!r}")
+19:             self._definitions[definition.event_id] = definition
+20:         self.validate_configs()
+21: 
+22:     def get(self, event_id: str) -> EventDefinition | None:
+23:         return self._definitions.get(event_id)
+24: 
+25:     def configuration(self, event_id: str) -> Mapping[str, Any] | None:
+26:         payload = self._configs.get(event_id)
+27:         return payload.copy() if payload is not None else None
+28: 
+29:     def is_enabled(self, event_id: str) -> bool:
+30:         definition = self.get(event_id)
+31:         config = self._configs.get(event_id)
+32:         return bool(definition and definition.enabled and config and config.get("enabled", True))
+33: 
+34:     def all(self, *, enabled_only: bool = False) -> tuple[EventDefinition, ...]:
+35:         values = tuple(self._definitions.values())
+36:         return tuple(item for item in values if self.is_enabled(item.event_id)) if enabled_only else values
+37: 
+38:     def validate_configs(self) -> None:
+39:         for definition in self._definitions.values():
+40:             path = self.config_root / definition.config_file
+41:             if not path.is_file():
+42:                 raise EventCatalogError(f"Missing config for {definition.event_id}: {path}")
+43:             try:
+44:                 payload = json.loads(path.read_text(encoding="utf-8"))
+45:             except (OSError, json.JSONDecodeError) as exc:
+46:                 raise EventCatalogError(f"Invalid JSON for {definition.event_id}: {exc}") from exc
+47:             if not isinstance(payload, dict):
+48:                 raise EventCatalogError(f"Config root must be an object for {definition.event_id}")
+49:             if payload.get("event_id") != definition.event_id:
+50:                 raise EventCatalogError(f"Config ID mismatch for {definition.event_id}")
+51:             if not isinstance(payload.get("enabled", True), bool):
+52:                 raise EventCatalogError(f"enabled must be boolean for {definition.event_id}")
+53:             if not isinstance(payload.get("parameters", {}), dict):
+54:                 raise EventCatalogError(f"parameters must be an object for {definition.event_id}")
+55:             if payload.get("source") != definition.source.value:
+56:                 raise EventCatalogError(f"Source mismatch for {definition.event_id}")
+57:             configured_subcategories = payload.get("subcategories", [])
+58:             if not isinstance(configured_subcategories, list) or not all(isinstance(x, str) for x in configured_subcategories):
+59:                 raise EventCatalogError(f"subcategories must be a string array for {definition.event_id}")
+60:             if tuple(configured_subcategories) != definition.subcategories:
+61:                 raise EventCatalogError(f"Subcategory mismatch for {definition.event_id}")
+62:             valid = {f"{definition.source.value}_{number:02d}" for number in range(1, 7)}
+63:             if any(item not in valid for item in configured_subcategories):
+64:                 raise EventCatalogError(f"Invalid subcategory for {definition.event_id}: {configured_subcategories}")
+65:             self._configs[definition.event_id] = payload
+
+--- load_default_catalog: lines 67-110 ---
+67: def load_default_catalog(project_root: str | Path | None = None) -> EventCatalog:
+68:     root = Path(project_root) if project_root is not None else Path(__file__).resolve().parent.parent
+69:     config_root = root / "config" / "events"
+70:     definitions = (
+71:         EventDefinition(
+72:             event_id="EVT_001_ROACH_ATTACK", label="НАПАДЕНИЕ ТАРАКАНОВ",
+73:             description="3 клика по центральной кнопке → пауза. 24 таракана; +1 очко за каждого.",
+74:             source=EventSource.ACTION, implementation="legacy.roach_attack",
+75:             config_file="evt_001_roach_attack.json", resources=("game_objects", "score", "main_gameplay"),
+76:             exclusive_resources=("roach_input", "event_overlay"), subcategories=("ACTION_02",),
+77:             phase_policy="CANCEL", interruptible=True,
+78:             metadata={"status": "implemented", "admin_supported": True},
+79:         ),
+80:         EventDefinition(
+81:             event_id="EVT_002_WORD_SHOCK", label="СЛОВЕСНЫЙ ШОК",
+82:             description="3 клика → пауза 1 сек. Начать вторую тройку нужно в следующую секунду.",
+83:             source=EventSource.ACTION, implementation="legacy.word_shock",
+84:             config_file="evt_002_word_shock.json", resources=("event_timer",),
+85:             exclusive_resources=("keyboard_text_input", "main_gameplay", "event_overlay"),
+86:             subcategories=("ACTION_01",), phase_policy="CANCEL", interruptible=True,
+87:             metadata={"status": "implemented", "admin_supported": True},
+88:         ),
+89:         EventDefinition(
+90:             event_id="EVT_003_PLEASE_DONT_TOUCH", label="PLEASE DON'T TOUCH ANYTHING",
+91:             description="Случайная 30-секундная проверка бездействия с сохранением истории игрока.",
+92:             source=EventSource.RANDOM, implementation="events.evt003_runtime.EVT003Runtime",
+93:             config_file="evt_003_please_dont_touch.json",
+94:             resources=("event_timer",),
+95:             exclusive_resources=("main_gameplay", "event_overlay", "mouse_input"),
+96:             subcategories=("RANDOM_05",), phase_policy="CANCEL", interruptible=True,
+97:             metadata={"status": "implemented", "admin_supported": True},
+98:         ),
+99:         EventDefinition(
+100:             event_id="EVT_004_ADVENTURE_ROAD", label="ДОРОГА ПРИКЛЮЧЕНИЙ",
+101:             description="Бой с драконом, который атакует элементы игрового интерфейса PALCHIK.",
+102:             source=EventSource.ACTION, implementation="events.evt004_runtime.AdventureRoadRuntime",
+103:             config_file="evt_004_road_of_adventures.json",
+104:             resources=("main_gameplay", "event_overlay", "mouse_input", "cursor", "event_audio"),
+105:             exclusive_resources=("main_gameplay", "event_overlay", "mouse_input"),
+106:             subcategories=("ACTION_03",), phase_policy="CANCEL", interruptible=True,
+107:             metadata={"status": "implemented", "admin_supported": True},
+108:         ),
+109:     )
+110:     return EventCatalog(definitions, config_root)
