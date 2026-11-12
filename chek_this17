@@ -1,0 +1,47 @@
+METHOD: GameControllerPygame._draw_primary_target_button
+LINES: 1480-1516
+1480:     def _draw_primary_target_button(
+1481:         self, surface, *, logic=None, glitch_intensity=0.0,
+1482:         shadow_offset_x=0, event_mode=False, animation_progress=None,
+1483:     ):
+1484:         """Draw PALCHIK's original green primary button in every presentation."""
+1485:         target_rect = self.rect_target.copy()
+1486:         if self.target_scale != 1.0:
+1487:             target_rect = target_rect.inflate(
+1488:                 int(target_rect.width * (self.target_scale - 1)),
+1489:                 int(target_rect.height * (self.target_scale - 1)),
+1490:             )
+1491:             target_rect.center = self.rect_target.center
+1492: 
+1493:         # RUNNING and GAME_OVER share this exact event-only button anchor.
+1494:         # Normal gameplay keeps the original rect_target position unchanged.
+1495:         if event_mode:
+1496:             target_rect.y -= max(1, int(surface.get_height() * 0.03))
+1497: 
+1498:         font = self.font_main or self.font_sub or pygame.font.SysFont("Arial", 22, bold=True)
+1499:         if animation_progress is not None:
+1500:             return self._draw_evt003_button_animation(
+1501:                 surface, target_rect, animation_progress, font,
+1502:             )
+1503: 
+1504:         if not event_mode and logic is not None and getattr(logic, "clicks_in_cycle", 0) == 9:
+1505:             target_rect.x += random.randint(-3, 3)
+1506:             target_rect.y += random.randint(-3, 3)
+1507: 
+1508:         pygame.draw.rect(surface, (20, 120, 40), target_rect, border_radius=12)
+1509:         target_label = "<  >"
+1510:         if (not event_mode and logic is not None
+1511:                 and logic.get_phase_index() >= 3 and random.random() < 0.02):
+1512:             target_label = random.choice(["<< >>", "??", "><", "! !"])
+1513:         target_text = target_label if event_mode else self.apply_glitch(target_label, glitch_intensity)
+1514:         img_target = font.render(target_text, True, (255, 255, 255))
+1515:         surface.blit(img_target, img_target.get_rect(center=target_rect.center))
+1516:         return target_rect
+
+CALL SITES:
+1480:     def _draw_primary_target_button(
+1557:         return self._draw_primary_target_button(surface, event_mode=True)
+1563:         return self._draw_primary_target_button(
+1718:             self._draw_primary_target_button(
+
+SHA256: 5F3703EFE3F2759B7DFCC1132E71C998BF0AEBDDC0DE98D883FC2D087BD785AE
