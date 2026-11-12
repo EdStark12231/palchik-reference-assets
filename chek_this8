@@ -401,6 +401,16 @@ class Application:
         self._evt004_wing_loop_active = False
 
         self.evt003_typewriter = CharacterTypewriter(self.evt003_typewriter_interval)
+        # EVT_004 result screen: independent typewriter state.
+        self.evt004_result_state = None
+        self.evt004_result_text = ""
+        self.evt004_result_started_at = 0.0
+        self.evt004_result_interval = 0.075
+        self.evt004_result_typewriter = CharacterTypewriter(
+            self.evt004_result_interval
+        )
+        self.evt004_result_typewriter_count = 0
+        self.evt004_result_revealed = False
         self.evt003_is_sandbox = False
         self.evt003_dialog_payload = None
         self.evt003_ok_rect = None
@@ -1554,13 +1564,207 @@ class Application:
         self.evt004_presentation = None
         self.evt004_instance_id = None
         self.evt004_started_at = 0.0
-        if outcome == "VICTORY":
-            self._show_notification("EVT_004: ПОБЕДА — ДРАКОН ПОБЕЖДЕН", duration=2500)
-        elif outcome == "DEFEAT":
-            self._show_notification("EVT_004: ПОРАЖЕНИЕ — ЦЕЛИ УНИЧТОЖЕНЫ", duration=2500)
+        if outcome in ("VICTORY", "DEFEAT"):
+            self._start_evt004_result_screen(outcome)
         elif outcome == "CANCELLED":
             self._show_notification("EVT_004: ОТМЕНЕНО", duration=2000)
         self.secret_prompt_session.retry_after_event()
+
+    def _start_evt004_result_screen(self, outcome):
+        """Start the exclusive EVT_004 victory/defeat screen."""
+        if outcome == "VICTORY":
+            text = "YOU WIN"
+        elif outcome == "DEFEAT":
+            text = "GAME OVER"
+        else:
+            return False
+
+        self.evt004_result_state = outcome
+        self.evt004_result_text = text
+        self.evt004_result_started_at = time.monotonic()
+        self.evt004_result_typewriter_count = 0
+        self.evt004_result_revealed = False
+
+        self.evt004_result_typewriter.reset(
+            text,
+            started_at=self.evt004_result_started_at,
+            interval=self.evt004_result_interval,
+        )
+        return True
+
+    def _update_evt004_result_screen(self):
+        """Advance the result title one character at a time."""
+        if self.evt004_result_state is None:
+            return
+
+        if self.evt004_result_revealed:
+            return
+
+        now = time.monotonic()
+        newly_revealed = self.evt004_result_typewriter.advance(now)
+
+        self.evt004_result_typewriter_count = min(
+            len(self.evt004_result_text),
+            max(
+                0,
+                int(self.evt004_result_typewriter.visible_count),
+            ),
+        )
+
+        for _ in range(newly_revealed):
+            self.audio_box.play_typewriter_tick()
+
+        if self.evt004_result_typewriter_count >= len(
+            self.evt004_result_text
+        ):
+            self.evt004_result_revealed = True
+
+    def _reveal_evt004_result_text(self):
+        """Finish typewriter animation without closing the screen."""
+        if self.evt004_result_state is None:
+            return
+
+        self.evt004_result_revealed = True
+        self.evt004_result_typewriter_count = len(
+            self.evt004_result_text
+        )
+
+    def _close_evt004_result_screen(self):
+        """Release the result screen and return to normal gameplay."""
+        if self.evt004_result_state is None:
+            return
+
+        self.evt004_result_state = None
+        self.evt004_result_text = ""
+        self.evt004_result_started_at = 0.0
+        self.evt004_result_typewriter_count = 0
+        self.evt004_result_revealed = False
+
+    def _handle_evt004_result_event(self, event):
+        """Consume all gameplay input while the result screen is active."""
+        if event.type == pygame.VIDEORESIZE:
+            self.screen = pygame.display.set_mode(
+                (event.w, event.h),
+                pygame.FULLSCREEN | pygame.DOUBLEBUF | pygame.OPENGL,
+            )
+            self._setup_menu_hitboxes()
+            self.game_view.width = event.w
+            self.game_view.height = event.h
+            self.game_view.recalculate_layout()
+            return
+
+        if event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_ESCAPE:
+                self._close_evt004_result_screen()
+            elif event.key in (
+                pygame.K_RETURN,
+                pygame.K_KP_ENTER,
+                pygame.K_SPACE,
+            ):
+                if not self.evt004_result_revealed:
+                    self._reveal_evt004_result_text()
+                else:
+                    self._close_evt004_result_screen()
+            return
+
+        if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+            if not self.evt004_result_revealed:
+                self._reveal_evt004_result_text()
+            else:
+                self._close_evt004_result_screen()
+
+    def _draw_evt004_result_screen(self, surface):
+        """Draw the restrained NES-style result screen."""
+        width, height = surface.get_size()
+        surface.fill((3, 5, 14))
+
+        frame_width = max(
+            1, min(width - 24, max(240, int(width * 0.72)))
+        )
+        frame_height = max(
+            1, min(height - 24, max(150, int(height * 0.34)))
+        )
+
+        frame = pygame.Rect(
+            0, 0, frame_width, frame_height
+        )
+        frame.center = (width // 2, height // 2)
+
+        pygame.draw.rect(surface, (7, 11, 25), frame)
+        pygame.draw.rect(surface, (48, 76, 132), frame, 4)
+
+        inner_frame = frame.inflate(-12, -12)
+        if inner_frame.width > 0 and inner_frame.height > 0:
+            pygame.draw.rect(
+                surface, (91, 126, 184), inner_frame, 1
+            )
+
+        if self.evt004_result_state == "VICTORY":
+            title_color = (255, 226, 132)
+        else:
+            title_color = (255, 104, 104)
+
+        visible_text = self.evt004_result_text[
+            :self.evt004_result_typewriter_count
+        ]
+
+        title_surface = self.font_title.render(
+            visible_text, True, title_color
+        )
+
+        max_title_width = max(1, frame.width - 48)
+        if title_surface.get_width() > max_title_width:
+            scale = max_title_width / title_surface.get_width()
+            title_surface = pygame.transform.scale(
+                title_surface,
+                (
+                    max_title_width,
+                    max(
+                        1,
+                        int(title_surface.get_height() * scale),
+                    ),
+                ),
+            )
+
+        surface.blit(
+            title_surface,
+            title_surface.get_rect(
+                center=(frame.centerx, frame.centery - 8)
+            ),
+        )
+
+        if self.evt004_result_revealed:
+            hint = self.font_hint.render(
+                "PRESS ENTER / CLICK",
+                True,
+                (132, 218, 178),
+            )
+
+            max_hint_width = max(1, frame.width - 32)
+            if hint.get_width() > max_hint_width:
+                scale = max_hint_width / hint.get_width()
+                hint = pygame.transform.scale(
+                    hint,
+                    (
+                        max_hint_width,
+                        max(
+                            1,
+                            int(hint.get_height() * scale),
+                        ),
+                    ),
+                )
+
+            surface.blit(
+                hint,
+                hint.get_rect(
+                    center=(
+                        frame.centerx,
+                        frame.bottom - max(
+                            24, int(frame.height * 0.20)
+                        ),
+                    )
+                ),
+            )
 
     def _update_evt004(self, dt):
         """Update EVT004 and route state-transition audio; return active state."""
@@ -3521,6 +3725,14 @@ class Application:
     def _draw_game_to_texture(self):
         w, h = self.screen_texture.size
         surf = pygame.Surface((w, h))
+        if self.evt004_result_state is not None:
+            self._draw_evt004_result_screen(surf)
+            self.menu_cursor.set_hover_state(False)
+            self.menu_cursor.draw(surf)
+            self.screen_texture.write(
+                pygame.image.tobytes(surf, "RGBA", True)
+            )
+            return
         if self.evt003_state in ("RUNNING", "GAME_OVER"):
             if self.evt003_state == "RUNNING":
                 elapsed = max(0.0, time.monotonic() - self.evt003_started_at)
@@ -4112,6 +4324,9 @@ class Application:
             return
 
     def _update_game(self):
+        if self.evt004_result_state is not None:
+            self._update_evt004_result_screen()
+            return
         if self.event_collection_open or self.secret_input_open:
             return
         if self.evt004_runtime is not None:
@@ -4474,6 +4689,12 @@ class Application:
                     self.running = False
                     pygame.quit()
                     sys.exit()
+                if (
+                    self.current_screen == "game"
+                    and self.evt004_result_state is not None
+                ):
+                    self._handle_evt004_result_event(event)
+                    continue
                 if self.current_screen == "game" and self.evt003_state is not None:
                     self._handle_evt003_event(event)
                     continue
