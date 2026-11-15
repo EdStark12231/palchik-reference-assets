@@ -1,0 +1,2279 @@
+from pathlib import Path
+import sys
+import math
+import pygame
+
+
+# ============================================================
+# PALCHIK — EVT_005: НАЙДИ СЛАДКИЙ РУЛЕТ
+# Полная тестовая вступительная сцена.
+# Изменяется исключительно этот файл.
+# ============================================================
+
+PROJECT = Path(__file__).resolve().parents[1]
+
+ASSET_ROOT = Path(r"C:\Users\PC\Desktop\Спрайты для evt_005")
+
+ROOM_PATH = ASSET_ROOT / "room" / "Nordic Bedroom BG.png"
+KITCHEN_PATH = ASSET_ROOT / "room" / "Kitchen BG_dialogue 16x9-1.png"
+SWEETY_DIR = ASSET_ROOT / "Sweety"
+CHIBI_PATH = SWEETY_DIR / "chibi.png"
+KITCHEN_ITEMS_PATH_1 = ASSET_ROOT / "items" / "Kitchen Props Sheet.png"
+KITCHEN_ITEMS_PATH_2 = ASSET_ROOT / "items" / "Kitchen Props Sheet 2.png"
+CHAR_DIR = ASSET_ROOT / "Char"
+FONT_PATH = ASSET_ROOT / "shtxt" / "arcade.ttf"
+
+WIDTH = 960
+HEIGHT = 540
+FPS = 60
+
+# Initial EVT005 kitchen composition.
+KITCHEN_DINARA_FOOT = (790, 392)
+KITCHEN_PLAYER_FOOT = (465, 515)
+KITCHEN_DINARA_MAX_SIZE = (145, 175)
+KITCHEN_PLAYER_MAX_SIZE = (180, 215)
+
+# Free-roam movement configuration.
+KITCHEN_PLAYER_SPEED = 230.0
+KITCHEN_PLAYER_X_BOUNDS = (90.0, 870.0)
+KITCHEN_PLAYER_Y_BOUNDS = (385.0, 520.0)
+KITCHEN_ITEM_MAX_SIZE = (48, 48)
+KITCHEN_ITEM_APPROACH_Y = 385.0
+KITCHEN_ITEM_SPEED = 230.0
+KITCHEN_ITEM_ARRIVAL_RADIUS = 8.0
+KITCHEN_ITEM_INTERACTION_RADIUS = 40.0
+
+# id, name, description, sheet, column, row, screen position.
+# Sheet 1: 4 columns x 6 rows. Sheet 2: 4 columns x 5 rows.
+KITCHEN_ITEM_LAYOUT = (
+    ("eggs", "Яйца", "Свежие яйца для сладкого рулета.", "props1", 1, 0, (410, 245)),
+    ("flour", "Мука", "Пшеничная мука для теста.", "props1", 2, 0, (468, 245)),
+    ("butter", "Масло", "Домашнее сливочное масло.", "props1", 3, 0, (526, 245)),
+    ("milk", "Молоко", "Кувшин свежего молока.", "props1", 0, 1, (584, 245)),
+    ("spoon", "Ложка", "Деревянная ложка для готовки.", "props1", 2, 3, (642, 245)),
+    ("jam", "Банка варенья", "Ягодное варенье.", "props2", 0, 1, (700, 245)),
+)
+
+# ------------------------------------------------------------
+# Движение и пробуждение
+# ------------------------------------------------------------
+
+SPRITE_HEIGHT = 470
+
+START_X, START_Y = 760, 460
+END_X, END_Y = 480, 305
+
+MOVEMENT_DURATION = 4.0
+
+EYE_REVEAL_START = 0.0
+EYE_REVEAL_DURATION = 3.0
+
+# ------------------------------------------------------------
+# Сценические паузы
+# ------------------------------------------------------------
+
+INTRO_PAUSE_DURATION = 6.0
+INSPECTION_PAUSE_DURATION = 2.5
+GREETING_LAUGH_DURATION = 2.5
+GREETING_RETURN_DURATION = 0.2
+
+# ------------------------------------------------------------
+# Диалоги
+# ------------------------------------------------------------
+
+PANEL_X = 32
+PANEL_Y = 390
+PANEL_WIDTH = WIDTH - 64
+PANEL_HEIGHT = 126
+
+PANEL_BACKGROUND = (12, 16, 29, 235)
+PANEL_OUTER_BORDER = (205, 190, 145)
+PANEL_INNER_BORDER = (105, 125, 155)
+
+PANEL_TEXT_COLOR = (245, 242, 230)
+PANEL_NAME_COLOR = (255, 222, 155)
+
+LETTER_INTERVAL = 0.055
+PUNCTUATION_PAUSE = 0.20
+
+WHITE = (255, 255, 255)
+BLACK = (0, 0, 0)
+
+TEXT_COLOR = (240, 237, 225)
+MUTED_COLOR = (175, 185, 205)
+GOLD = (240, 205, 135)
+
+# ------------------------------------------------------------
+# Тряска
+# ------------------------------------------------------------
+
+SHAKE_INTENSITY = 10.0
+SHAKE_SPEED_X = 31.0
+SHAKE_SPEED_Y = 37.0
+SHAKE_MARGIN = 16
+
+# ------------------------------------------------------------
+# Эмоции Динары
+# ------------------------------------------------------------
+
+EMOTIONS = {
+    "base": "base.png",
+    "smile": "smile.png",
+    "недовольна": "недовольна.png",
+    "напугана": "напугана.png",
+    "устала": "устала.png",
+    "Очень довольна": "Очень довольна.png",
+    "вопрос": "вопрос.png",
+    "довольна": "довольна.png",
+    "Смущение": "Смущение.png",
+    "Счастье": "Счастье.png",
+}
+
+# ------------------------------------------------------------
+# Классы
+# ------------------------------------------------------------
+
+CLASSES = [
+    {
+        "name": "ПАЛАДИН",
+        "file": "Paladin Base.png",
+        "description": (
+            "Защитник света и веры. Стойкий воин, "
+            "способный выдерживать тяжёлые удары "
+            "и защищать союзников."
+        ),
+    },
+    {
+        "name": "МАГ",
+        "file": "Mage Base.png",
+        "description": (
+            "Повелитель магии. Использует разрушительные "
+            "заклинания, но вынужден полагаться на осторожность "
+            "и расчёт."
+        ),
+    },
+    {
+        "name": "ПЛУТ",
+        "file": "Rogue Base.png",
+        "description": (
+            "Ловкий и хитрый боец. Предпочитает скорость, "
+            "точность и неожиданные атаки грубой силе."
+        ),
+    },
+    {
+        "name": "ВОИН",
+        "file": "Warrior Base.png",
+        "description": (
+            "Мастер оружия и ближнего боя. Сочетает "
+            "физическую мощь, выносливость "
+            "и прямолинейную тактику."
+        ),
+    },
+]
+
+# ------------------------------------------------------------
+# Рассказчик
+# Каждая строка — самостоятельная реплика.
+# ------------------------------------------------------------
+
+NARRATOR_LINES = [
+    "Это был сложный и воистину долгий путь...",
+    "Вы — Искатель приключений северных земель.",
+    "Ваша дорога привела вас к одинокой хибаре на краю деревни.",
+    (
+        "Стояла необычайно холодная ночь, а в вашем кармане "
+        "явно не хватало медняков на тёплую постель в корчме..."
+    ),
+    (
+        "После долгих уговоров, необычно выглядящая хозяйка "
+        "дома всё же сжалилась над вами и пустила вас в дом..."
+    ),
+    "Но с условием, что вы поможете ей в одном деле...",
+]
+
+# ------------------------------------------------------------
+# Пробуждение
+# Каждое предложение — отдельный слайд.
+# ------------------------------------------------------------
+
+WAKE_LINES = [
+    "Ох...",
+    "Зачем же так трясти...",
+    "...",
+    "Ну хватит, встаю я...",
+]
+
+# ------------------------------------------------------------
+# Выбор приветствия
+# Каждое предложение хранится отдельно.
+# ------------------------------------------------------------
+
+GREETING_CHOICES = [
+    (
+        "Шутливо",
+        [
+            "Приятно познакомиться... Ди",
+        ],
+    ),
+    (
+        "Серьёзно",
+        [
+            "С моей стороны было глупо не узнать твоего имени раньше.",
+            "Динара.",
+            "Я рад знакомству.",
+        ],
+    ),
+    (
+        "Нейтрально",
+        [
+            "Мне кажется, где-то тебя я уже видел..",
+        ],
+    ),
+]
+
+
+# ============================================================
+# ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
+# ============================================================
+
+def clamp(value, minimum, maximum):
+    return max(minimum, min(maximum, value))
+
+
+def ease_in_out(value):
+    value = clamp(value, 0.0, 1.0)
+    return value * value * (3.0 - 2.0 * value)
+
+
+def load_font(size):
+    if FONT_PATH.is_file():
+        try:
+            font = pygame.font.Font(str(FONT_PATH), size)
+
+            test = font.metrics(
+                "АБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯ"
+                "абвгдеёжзийклмнопрстуфхцчшщъыьэюя"
+            )
+
+            if test and all(item is not None for item in test):
+                return font
+
+            print("[ВНИМАНИЕ] Шрифт не полностью поддерживает кириллицу.")
+
+        except pygame.error:
+            pass
+
+    return pygame.font.SysFont("arial", size)
+
+
+def load_image(path):
+    if not path.is_file():
+        raise FileNotFoundError(f"Не найден ресурс: {path}")
+
+    return pygame.image.load(str(path)).convert_alpha()
+
+
+def fit_image(image, max_width, max_height):
+    scale = min(
+        max_width / image.get_width(),
+        max_height / image.get_height()
+    )
+
+    size = (
+        max(1, round(image.get_width() * scale)),
+        max(1, round(image.get_height() * scale))
+    )
+
+    return pygame.transform.smoothscale(image, size)
+
+
+def crop_transparent_bounds(image):
+    bounds = image.get_bounding_rect()
+
+    if bounds.width <= 0 or bounds.height <= 0:
+        raise ValueError("В изображении отсутствует видимая область.")
+
+    return image.subsurface(bounds).copy()
+
+
+def make_silhouette(image):
+    silhouette = image.copy()
+    silhouette.fill(
+        (12, 16, 30, 255),
+        special_flags=pygame.BLEND_RGBA_MULT
+    )
+    return silhouette
+
+
+def wrap_text(font, text, max_width):
+    words = text.split()
+    lines = []
+    current = ""
+
+    for word in words:
+        candidate = word if not current else current + " " + word
+
+        if font.size(candidate)[0] <= max_width:
+            current = candidate
+        else:
+            if current:
+                lines.append(current)
+            current = word
+
+    if current:
+        lines.append(current)
+
+    return lines
+
+
+def draw_centered_text(surface, font, text, color, center):
+    rendered = font.render(text, True, color)
+    surface.blit(rendered, rendered.get_rect(center=center))
+
+
+# ============================================================
+# ЕДИНАЯ СИСТЕМА ПЕЧАТИ
+# ============================================================
+
+def text_duration(text):
+    duration = 0.0
+
+    for character in text:
+        duration += LETTER_INTERVAL
+
+        if character in ".,!?…:;":
+            duration += PUNCTUATION_PAUSE
+
+    return duration
+
+
+def visible_character_count(text, elapsed):
+    timer = max(0.0, elapsed)
+    count = 0
+
+    for character in text:
+        delay = LETTER_INTERVAL
+
+        if character in ".,!?…:;":
+            delay += PUNCTUATION_PAUSE
+
+        if timer < delay:
+            break
+
+        timer -= delay
+        count += 1
+
+    return count
+
+
+def draw_wrapped_text(
+    surface,
+    font,
+    text,
+    color,
+    x,
+    y,
+    width,
+    line_gap=3
+):
+    lines = wrap_text(font, text, width)
+
+    for line in lines:
+        rendered = font.render(line, True, color)
+        surface.blit(rendered, (x, y))
+        y += rendered.get_height() + line_gap
+
+    return y
+
+
+def draw_dialogue_panel(
+    surface,
+    speaker_font,
+    message_font,
+    speaker,
+    message,
+    elapsed,
+    show_full=False,
+    allow_continue=True,
+):
+    panel = pygame.Surface(
+        (PANEL_WIDTH, PANEL_HEIGHT),
+        pygame.SRCALPHA
+    )
+
+    pygame.draw.rect(
+        panel,
+        PANEL_BACKGROUND,
+        (0, 0, PANEL_WIDTH, PANEL_HEIGHT),
+        border_radius=5
+    )
+
+    pygame.draw.rect(
+        panel,
+        PANEL_OUTER_BORDER,
+        (1, 1, PANEL_WIDTH - 2, PANEL_HEIGHT - 2),
+        width=2,
+        border_radius=5
+    )
+
+    pygame.draw.rect(
+        panel,
+        PANEL_INNER_BORDER,
+        (7, 7, PANEL_WIDTH - 14, PANEL_HEIGHT - 14),
+        width=1,
+        border_radius=3
+    )
+
+    surface.blit(panel, (PANEL_X, PANEL_Y))
+
+    name_surface = speaker_font.render(
+        speaker,
+        True,
+        PANEL_NAME_COLOR
+    )
+
+    name_x = PANEL_X + 28
+    name_y = PANEL_Y + 9
+
+    name_bg = pygame.Rect(
+        name_x - 10,
+        name_y - 3,
+        name_surface.get_width() + 28,
+        name_surface.get_height() + 8
+    )
+
+    pygame.draw.rect(
+        surface,
+        (25, 31, 48),
+        name_bg,
+        border_radius=3
+    )
+
+    pygame.draw.rect(
+        surface,
+        PANEL_OUTER_BORDER,
+        name_bg,
+        width=1,
+        border_radius=3
+    )
+
+    surface.blit(name_surface, (name_x, name_y))
+
+    if show_full:
+        visible = message
+    else:
+        count = visible_character_count(message, elapsed)
+        visible = message[:count]
+
+    draw_wrapped_text(
+        surface,
+        message_font,
+        visible,
+        PANEL_TEXT_COLOR,
+        PANEL_X + 30,
+        PANEL_Y + 57,
+        PANEL_WIDTH - 85,
+        line_gap=2
+    )
+
+    complete = len(visible) >= len(message)
+
+    if allow_continue and complete:
+        pulse = 0.5 + 0.5 * math.sin(elapsed * 4.0)
+        arrow_alpha = int(120 + pulse * 135)
+
+        arrow = pygame.Surface((18, 12), pygame.SRCALPHA)
+
+        pygame.draw.polygon(
+            arrow,
+            (245, 225, 175, arrow_alpha),
+            [(2, 2), (16, 2), (9, 10)]
+        )
+
+        surface.blit(
+            arrow,
+            (
+                PANEL_X + PANEL_WIDTH - 38,
+                PANEL_Y + PANEL_HEIGHT - 25
+            )
+        )
+
+    return complete
+
+
+# ============================================================
+# ЗАГРУЗКА РЕСУРСОВ
+# ============================================================
+
+def load_room():
+    image = pygame.image.load(str(ROOM_PATH)).convert()
+    return pygame.transform.smoothscale(image, (WIDTH, HEIGHT))
+
+
+def load_kitchen_room():
+    image = pygame.image.load(str(KITCHEN_PATH)).convert()
+    return pygame.transform.smoothscale(image, (WIDTH, HEIGHT))
+
+
+def load_kitchen_item_sprites():
+    sheet_1 = load_image(KITCHEN_ITEMS_PATH_1)
+    sheet_2 = load_image(KITCHEN_ITEMS_PATH_2)
+
+    expected_sizes = {
+        "props1": (2352, 3520),
+        "props2": (2576, 3216),
+    }
+
+    if sheet_1.get_size() != expected_sizes["props1"]:
+        raise ValueError(f"Unexpected first item sheet size: {sheet_1.get_size()}")
+
+    if sheet_2.get_size() != expected_sizes["props2"]:
+        raise ValueError(f"Unexpected second item sheet size: {sheet_2.get_size()}")
+
+    sheets = {
+        "props1": (sheet_1, 4, 6),
+        "props2": (sheet_2, 4, 5),
+    }
+
+    result = {}
+
+    for item_id, name, description, sheet_key, column, row, position in KITCHEN_ITEM_LAYOUT:
+        sheet, columns, rows = sheets[sheet_key]
+
+        x1 = round(column * sheet.get_width() / columns)
+        x2 = round((column + 1) * sheet.get_width() / columns)
+        y1 = round(row * sheet.get_height() / rows)
+        y2 = round((row + 1) * sheet.get_height() / rows)
+
+        cell = sheet.subsurface(
+            pygame.Rect(x1, y1, x2 - x1, y2 - y1)
+        ).copy()
+
+        # Handle a pure black background if a sheet has no transparency.
+        corners = [
+            cell.get_at((0, 0)),
+            cell.get_at((cell.get_width() - 1, 0)),
+            cell.get_at((0, cell.get_height() - 1)),
+            cell.get_at((cell.get_width() - 1, cell.get_height() - 1)),
+        ]
+
+        if all(
+            c.a >= 250 and max(c.r, c.g, c.b) <= 8
+            for c in corners
+        ):
+            cell.set_colorkey((0, 0, 0))
+            transparent = pygame.Surface(cell.get_size(), pygame.SRCALPHA)
+            transparent.blit(cell, (0, 0))
+            cell = transparent
+
+        bounds = cell.get_bounding_rect()
+        if bounds.width <= 0 or bounds.height <= 0:
+            raise ValueError(f"Empty sprite cell for item: {item_id}")
+
+        sprite = cell.subsurface(bounds).copy()
+        result[item_id] = fit_image(sprite, *KITCHEN_ITEM_MAX_SIZE)
+
+    return result
+
+
+def build_kitchen_items(sprites):
+    items = []
+
+    for item_id, name, description, sheet_key, column, row, position in KITCHEN_ITEM_LAYOUT:
+        image = sprites[item_id]
+        items.append({
+            "id": item_id,
+            "name": name,
+            "description": description,
+            "image": image,
+            "position": position,
+            "approach": (float(position[0]), KITCHEN_ITEM_APPROACH_Y),
+            "rect": image.get_rect(center=position),
+        })
+
+    return items
+
+
+def load_dinara():
+    emotions = {}
+
+    for emotion, filename in EMOTIONS.items():
+        path = SWEETY_DIR / filename
+
+        if not path.is_file():
+            print(f"[ПРЕДУПРЕЖДЕНИЕ] Нет эмоции: {path}")
+            continue
+
+        image = crop_transparent_bounds(load_image(path))
+
+        new_width = max(
+            1,
+            round(
+                image.get_width()
+                * SPRITE_HEIGHT
+                / image.get_height()
+            )
+        )
+
+        emotions[emotion] = pygame.transform.smoothscale(
+            image,
+            (new_width, SPRITE_HEIGHT)
+        )
+
+    if "base" not in emotions:
+        raise FileNotFoundError(
+            "Не найден обязательный спрайт Sweety/base.png"
+        )
+
+    return emotions
+
+
+def load_class_images():
+    result = []
+
+    for item in CLASSES:
+        path = CHAR_DIR / item["file"]
+
+        if not path.is_file():
+            print(f"[ПРЕДУПРЕЖДЕНИЕ] Нет спрайта класса: {path}")
+            result.append(None)
+            continue
+
+        image = load_image(path)
+        result.append(fit_image(image, 190, 205))
+
+    return result
+
+
+# ============================================================
+# ПЕРСОНАЖ
+# ============================================================
+
+def draw_character(surface, image, x, y, alpha=255):
+    sprite = image.copy()
+    sprite.set_alpha(clamp(int(alpha), 0, 255))
+
+    rect = sprite.get_rect(
+        center=(round(x), round(y))
+    )
+
+    surface.blit(sprite, rect)
+
+
+# ------------------------------------------------------------
+# CHARACTER POSITIONING HELPERS
+# ------------------------------------------------------------
+
+def draw_ground_character(surface, image, x, foot_y):
+    if image is None:
+        return
+
+    rect = image.get_rect(
+        midbottom=(round(x), round(foot_y))
+    )
+    surface.blit(image, rect)
+
+# ============================================================
+# ПРОТИРАНИЕ ГЛАЗ
+# ============================================================
+
+def draw_eye_reveal(surface, elapsed):
+    progress = ease_in_out(
+        (elapsed - EYE_REVEAL_START) / EYE_REVEAL_DURATION
+    )
+
+    if progress >= 1.0:
+        return
+
+    darkness = int(225 * (1.0 - progress))
+
+    overlay = pygame.Surface(
+        (WIDTH, HEIGHT),
+        pygame.SRCALPHA
+    )
+
+    overlay.fill((0, 0, 0, darkness))
+
+    opening_width = int(80 + 1100 * progress)
+    opening_height = int(25 + 700 * progress)
+
+    opening = pygame.Rect(
+        0,
+        0,
+        opening_width,
+        opening_height
+    )
+
+    opening.center = (WIDTH // 2, HEIGHT // 2)
+
+    pygame.draw.ellipse(
+        overlay,
+        (0, 0, 0, 0),
+        opening
+    )
+
+    surface.blit(overlay, (0, 0))
+
+
+# ============================================================
+# ТРЯСКА ВСЕГО КАДРА
+# ============================================================
+
+def draw_shaken_frame(screen, frame, elapsed):
+    """
+    Смещается готовый кадр целиком:
+    фон, диалоговая панель, текст и все остальные элементы.
+    """
+
+    offset_x = round(
+        math.sin(elapsed * SHAKE_SPEED_X) * SHAKE_INTENSITY
+    )
+
+    offset_y = round(
+        math.cos(elapsed * SHAKE_SPEED_Y) * SHAKE_INTENSITY
+    )
+
+    canvas = pygame.Surface(
+        (
+            WIDTH + SHAKE_MARGIN * 2,
+            HEIGHT + SHAKE_MARGIN * 2
+        )
+    )
+
+    canvas.fill(WHITE)
+    canvas.blit(frame, (SHAKE_MARGIN, SHAKE_MARGIN))
+
+    screen.fill(WHITE)
+
+    screen.blit(
+        canvas,
+        (
+            -SHAKE_MARGIN + offset_x,
+            -SHAKE_MARGIN + offset_y
+        )
+    )
+
+
+# ============================================================
+# ВЫБОР ПРИВЕТСТВИЯ
+# ============================================================
+
+def draw_greeting_choices(surface, font, selected):
+    panel = pygame.Rect(145, 105, 670, 275)
+
+    pygame.draw.rect(
+        surface,
+        (15, 20, 34),
+        panel,
+        border_radius=8
+    )
+
+    pygame.draw.rect(
+        surface,
+        PANEL_OUTER_BORDER,
+        panel,
+        width=2,
+        border_radius=8
+    )
+
+    draw_centered_text(
+        surface,
+        font,
+        "ВЫБЕРИ ОТВЕТ",
+        GOLD,
+        (WIDTH // 2, 137)
+    )
+
+    for index, (label, sentences) in enumerate(GREETING_CHOICES):
+        rect = pygame.Rect(
+            180,
+            170 + index * 65,
+            600,
+            55
+        )
+
+        selected_color = (
+            (95, 79, 51)
+            if index == selected
+            else (39, 48, 66)
+        )
+
+        pygame.draw.rect(
+            surface,
+            selected_color,
+            rect,
+            border_radius=5
+        )
+
+        pygame.draw.rect(
+            surface,
+            GOLD if index == selected else PANEL_INNER_BORDER,
+            rect,
+            width=2 if index == selected else 1,
+            border_radius=5
+        )
+
+        draw_centered_text(
+            surface,
+            font,
+            f"{index + 1}. {label}",
+            TEXT_COLOR,
+            (rect.centerx, rect.centery - 8)
+        )
+
+        preview = " ".join(sentences)
+
+        if len(preview) > 76:
+            preview = preview[:73] + "..."
+
+        draw_centered_text(
+            surface,
+            pygame.font.SysFont("arial", 14),
+            preview,
+            MUTED_COLOR,
+            (rect.centerx, rect.centery + 13)
+        )
+
+
+# ============================================================
+# ВЫБОР КЛАССА
+# ============================================================
+
+CLASS_POSITIONS = [
+    (25, 65),
+    (495, 65),
+    (25, 305),
+    (495, 305),
+]
+
+
+def draw_class_selection(
+    surface,
+    title_font,
+    font,
+    class_images,
+    selected,
+):
+    surface.fill((15, 19, 31))
+
+    draw_centered_text(
+        surface,
+        title_font,
+        "ВЫБЕРИ СВОЙ ПУТЬ",
+        GOLD,
+        (WIDTH // 2, 32)
+    )
+
+    for index, item in enumerate(CLASSES):
+        x, y = CLASS_POSITIONS[index]
+
+        rect = pygame.Rect(x, y, 440, 220)
+        is_selected = index == selected
+
+        pygame.draw.rect(
+            surface,
+            (43, 49, 65) if is_selected else (27, 33, 47),
+            rect,
+            border_radius=8
+        )
+
+        pygame.draw.rect(
+            surface,
+            GOLD if is_selected else PANEL_INNER_BORDER,
+            rect,
+            width=3 if is_selected else 1,
+            border_radius=8
+        )
+
+        title = title_font.render(
+            item["name"],
+            True,
+            GOLD if is_selected else TEXT_COLOR
+        )
+
+        surface.blit(title, (x + 15, y + 12))
+
+        image = class_images[index]
+
+        if image is not None:
+            image_rect = image.get_rect(
+                center=(x + 115, y + 133)
+            )
+            surface.blit(image, image_rect)
+        else:
+            draw_centered_text(
+                surface,
+                font,
+                "Нет изображения",
+                MUTED_COLOR,
+                (x + 115, y + 130)
+            )
+
+        draw_wrapped_text(
+            surface,
+            font,
+            item["description"],
+            TEXT_COLOR,
+            x + 225,
+            y + 65,
+            195,
+            line_gap=4
+        )
+
+    draw_centered_text(
+        surface,
+        font,
+        "СТРЕЛКИ — выбор     ENTER — подтвердить     1–4 — быстрый выбор",
+        MUTED_COLOR,
+        (WIDTH // 2, HEIGHT - 12)
+    )
+
+
+# ============================================================
+# ОСНОВНАЯ СЦЕНА
+# ============================================================
+
+def main():
+    pygame.init()
+
+    screen = pygame.display.set_mode((WIDTH, HEIGHT))
+    pygame.display.set_caption(
+        "PALCHIK — EVT_005: Найди сладкий рулет"
+    )
+
+    clock = pygame.time.Clock()
+
+    speaker_font = load_font(19)
+    message_font = load_font(22)
+    small_font = load_font(17)
+    tooltip_font = load_font(14)
+    title_font = load_font(25)
+
+    for path in (
+        ROOM_PATH,
+        KITCHEN_PATH,
+        CHIBI_PATH,
+        KITCHEN_ITEMS_PATH_1,
+        KITCHEN_ITEMS_PATH_2,
+        FONT_PATH,
+    ):
+        if not path.is_file():
+            raise FileNotFoundError(f"Не найден ресурс: {path}")
+
+    room = load_room()
+    kitchen_room = load_kitchen_room()
+    kitchen_item_sprites = load_kitchen_item_sprites()
+    emotions = load_dinara()
+    class_images = load_class_images()
+
+    neutral = emotions["base"]
+    silhouette = make_silhouette(neutral)
+
+    # Free-roam kitchen uses the separate chibi artwork.
+    chibi_dinara_source = load_image(CHIBI_PATH)
+    kitchen_dinara_image = fit_image(
+        chibi_dinara_source,
+        *KITCHEN_DINARA_MAX_SIZE
+    )
+
+    kitchen_class_images = [
+        fit_image(image, *KITCHEN_PLAYER_MAX_SIZE)
+        if image is not None else None
+        for image in class_images
+    ]
+
+    kitchen_items = build_kitchen_items(kitchen_item_sprites)
+
+    # --------------------------------------------------------
+    # Состояние
+    # --------------------------------------------------------
+
+    stage = "narrator_intro_pause"
+
+    narrator_intro_elapsed = 0.0
+    narrator_index = 0
+
+    dialogue_index = 0
+    dialogue_elapsed = 0.0
+
+    dialogue = []
+    dialogue_next_stage = None
+
+    white_elapsed = 0.0
+    shake_line_index = 0
+
+    room_elapsed = 0.0
+
+    inspection_pause_elapsed = 0.0
+    greeting_laugh_elapsed = 0.0
+    greeting_return_elapsed = 0.0
+
+    player_name = ""
+    greeting_index = 0
+    selected_class = 0
+    selected_class_data = None
+
+    current_emotion = "base"
+
+    kitchen_player_x = float(KITCHEN_PLAYER_FOOT[0])
+    kitchen_player_y = float(KITCHEN_PLAYER_FOOT[1])
+    kitchen_move_target = None
+    kitchen_target_item_id = None
+    kitchen_inventory = []
+    kitchen_pickup_notice = ""
+    kitchen_pickup_notice_timer = 0.0
+
+    running = True
+
+    # --------------------------------------------------------
+    # Единая последовательность диалогов
+    # --------------------------------------------------------
+
+    def set_dialogue(lines, next_stage):
+        nonlocal dialogue
+        nonlocal dialogue_index
+        nonlocal dialogue_elapsed
+        nonlocal dialogue_next_stage
+
+        dialogue = lines
+        dialogue_index = 0
+        dialogue_elapsed = 0.0
+        dialogue_next_stage = next_stage
+
+    def current_line():
+        if not dialogue:
+            return None
+
+        if dialogue_index < 0 or dialogue_index >= len(dialogue):
+            return None
+
+        return dialogue[dialogue_index]
+
+    def advance_dialogue():
+        nonlocal dialogue_index
+        nonlocal dialogue_elapsed
+        nonlocal stage
+        nonlocal current_emotion
+
+        line = current_line()
+
+        if line is None:
+            return
+
+        # Первое нажатие после начала печати:
+        # показать всю текущую реплику.
+        if visible_character_count(
+            line["text"],
+            dialogue_elapsed
+        ) < len(line["text"]):
+
+            dialogue_elapsed = text_duration(line["text"]) + 1.0
+            return
+
+        # Следующее нажатие — следующая реплика.
+        dialogue_index += 1
+        dialogue_elapsed = 0.0
+
+        next_line = current_line()
+
+        if next_line is not None:
+            current_emotion = next_line.get(
+                "emotion",
+                current_emotion
+            )
+            return
+
+        stage = dialogue_next_stage
+
+        if stage == "name_input":
+            pygame.key.start_text_input()
+
+        if stage == "inspection_pause":
+            nonlocal inspection_pause_elapsed
+            inspection_pause_elapsed = 0.0
+            current_emotion = "base"
+
+    # --------------------------------------------------------
+    # Переходы сценария
+    # --------------------------------------------------------
+
+    def begin_white_shake():
+        nonlocal stage
+        nonlocal shake_line_index
+        nonlocal white_elapsed
+
+        stage = "white_shake"
+        shake_line_index = 0
+        white_elapsed = 0.0
+
+    def begin_room():
+        nonlocal stage
+        nonlocal room_elapsed
+
+        stage = "room_reveal"
+        room_elapsed = 0.0
+
+    def begin_dinara_dialogue():
+        nonlocal stage
+        nonlocal current_emotion
+
+        stage = "dinara_dialogue"
+        current_emotion = "недовольна"
+
+        set_dialogue(
+            [
+                {
+                    "speaker": "Динара",
+                    "text": "Наконец-то ты проснулся!",
+                    "emotion": "недовольна",
+                },
+                {
+                    "speaker": "Динара",
+                    "text": "Я целый час пытаюсь тебя разбудить!",
+                    "emotion": "недовольна",
+                },
+
+                # Рассказчик: игрок постепенно приходит в себя.
+                {
+                    "speaker": "Рассказчик",
+                    "text": "Вы еле-еле смогли протереть свои глаза",
+                    "emotion": "base",
+                },
+                {
+                    "speaker": "Рассказчик",
+                    "text": "Девушка приютившая вас, была явно не довольна тем,",
+                    "emotion": "base",
+                },
+                {
+                    "speaker": "Рассказчик",
+                    "text": "Что вы так долго спите.",
+                    "emotion": "base",
+                },
+
+                # Игрок.
+                {
+                    "speaker": "Игрок",
+                    "text": "Ох... извините, *зевок*",
+                    "emotion": "base",
+                },
+                {
+                    "speaker": "Игрок",
+                    "text": "Я был так вымотан...",
+                    "emotion": "base",
+                },
+
+                # Рассказчик замечает взгляд Динары.
+                {
+                    "speaker": "Рассказчик",
+                    "text": "Вы ловите на себе оценивающий взгляд,",
+                    "emotion": "base",
+                },
+                {
+                    "speaker": "Рассказчик",
+                    "text": "От которого вам стало не по себе",
+                    "emotion": "base",
+                },
+
+                {
+                    "speaker": "Динара",
+                    "text": "Да...",
+                    "emotion": "base",
+                },
+            ],
+            "inspection_pause"
+        )
+
+    def begin_after_inspection_pause():
+        nonlocal stage
+        nonlocal current_emotion
+
+        stage = "dinara_dialogue"
+        current_emotion = "base"
+
+        set_dialogue(
+            [
+                {
+                    "speaker": "Динара",
+                    "text": "Ты и правда выглядишь потрёпанным.",
+                    "emotion": "base",
+                },
+                {
+                    "speaker": "Игрок",
+                    "text": "...",
+                    "emotion": "base",
+                },
+                {
+                    "speaker": "Динара",
+                    "text": "Как тебя хоть зовут?",
+                    "emotion": "вопрос",
+                },
+            ],
+            "name_input"
+        )
+
+    def begin_name_introduction():
+        nonlocal stage
+        nonlocal current_emotion
+
+        stage = "name_introduction"
+        current_emotion = "base"
+
+        set_dialogue(
+            [
+                {
+                    "speaker": "Динара",
+                    "text": f"Вот как... {player_name}.",
+                    "emotion": "base",
+                },
+                {
+                    "speaker": "Динара",
+                    "text": "Что ж, я слышала имена и получше...",
+                    "emotion": "base",
+                },
+                {
+                    "speaker": "Динара",
+                    "text": "Меня зовут Динара Рыжая.",
+                    "emotion": "base",
+                },
+                {
+                    "speaker": "Динара",
+                    "text": "Можно просто Ди.",
+                    "emotion": "smile",
+                },
+            ],
+            "greeting"
+        )
+
+    def begin_greeting_response(index):
+        nonlocal stage
+        nonlocal greeting_index
+        nonlocal current_emotion
+
+        greeting_index = index
+
+        selected = GREETING_CHOICES[index]
+
+        stage = "after_greeting"
+        current_emotion = "base"
+
+        lines = []
+
+        for sentence in selected[1]:
+            lines.append({
+                "speaker": player_name,
+                "text": sentence,
+                "emotion": "base",
+            })
+
+        # После последней реплики игрока запускается
+        # отдельная сцена молчаливого смеха Динары.
+        set_dialogue(lines, "greeting_laugh")
+
+    def begin_class_dialogue():
+        nonlocal stage
+        nonlocal current_emotion
+
+        stage = "class_dialogue"
+        current_emotion = "base"
+
+        set_dialogue(
+            [
+                {
+                    "speaker": "Динара",
+                    "text": "Чтож, расскажи о себе, герой...",
+                    "emotion": "вопрос",
+                }
+            ],
+            "class_select"
+        )
+
+    def confirm_class():
+        nonlocal stage
+        nonlocal selected_class_data
+        nonlocal current_emotion
+        nonlocal kitchen_player_x
+        nonlocal kitchen_player_y
+        nonlocal kitchen_items
+        nonlocal kitchen_move_target
+        nonlocal kitchen_target_item_id
+        nonlocal kitchen_inventory
+        nonlocal kitchen_pickup_notice
+        nonlocal kitchen_pickup_notice_timer
+
+        selected_class_data = CLASSES[selected_class]
+        kitchen_player_x = float(KITCHEN_PLAYER_FOOT[0])
+        kitchen_player_y = float(KITCHEN_PLAYER_FOOT[1])
+        kitchen_items = build_kitchen_items(kitchen_item_sprites)
+        kitchen_move_target = None
+        kitchen_target_item_id = None
+        kitchen_inventory.clear()
+        kitchen_pickup_notice = ""
+        kitchen_pickup_notice_timer = 0.0
+
+        stage = "class_confirmed"
+        current_emotion = "base"
+
+        class_name = selected_class_data["name"].lower()
+
+        # Здесь сценарий останавливается.
+        # Продолжение истории пока не добавляется.
+        set_dialogue(
+            [
+                {
+                    "speaker": player_name,
+                    "text": "Мне особо нечего рассказать о себе...",
+                    "emotion": "base",
+                },
+                {
+                    "speaker": player_name,
+                    "text": f"Я {class_name}.",
+                    "emotion": "base",
+                },
+            ],
+            "kitchen_scene"
+        )
+
+    # --------------------------------------------------------
+    # Общий обработчик продолжения
+    # SPACE и ЛКМ вызывают именно эту функцию.
+    # --------------------------------------------------------
+
+    def advance_action():
+        nonlocal narrator_index
+        nonlocal dialogue_elapsed
+        nonlocal shake_line_index
+        nonlocal white_elapsed
+        nonlocal stage
+
+        if stage in (
+            "narrator_intro_pause",
+            "inspection_pause",
+            "greeting_laugh",
+            "greeting_return",
+        ):
+            return
+
+        if stage == "narrator":
+            text = NARRATOR_LINES[narrator_index]
+
+            if visible_character_count(
+                text,
+                dialogue_elapsed
+            ) < len(text):
+                dialogue_elapsed = text_duration(text) + 1.0
+                return
+
+            narrator_index += 1
+            dialogue_elapsed = 0.0
+
+            if narrator_index >= len(NARRATOR_LINES):
+                begin_white_shake()
+
+            return
+
+        if stage == "white_shake":
+            text = WAKE_LINES[shake_line_index]
+
+            if visible_character_count(
+                text,
+                white_elapsed
+            ) < len(text):
+                white_elapsed = text_duration(text) + 1.0
+                return
+
+            shake_line_index += 1
+            white_elapsed = 0.0
+
+            if shake_line_index >= len(WAKE_LINES):
+                begin_room()
+
+            return
+
+        if stage in (
+            "dinara_dialogue",
+            "name_introduction",
+            "after_greeting",
+            "class_dialogue",
+            "class_confirmed",
+        ):
+            advance_dialogue()
+
+    # --------------------------------------------------------
+    # Сброс
+    # --------------------------------------------------------
+
+    def reset_scene():
+        nonlocal stage
+        nonlocal narrator_intro_elapsed
+        nonlocal narrator_index
+        nonlocal dialogue_index
+        nonlocal dialogue_elapsed
+        nonlocal dialogue
+        nonlocal dialogue_next_stage
+        nonlocal white_elapsed
+        nonlocal shake_line_index
+        nonlocal room_elapsed
+        nonlocal inspection_pause_elapsed
+        nonlocal greeting_laugh_elapsed
+        nonlocal greeting_return_elapsed
+        nonlocal player_name
+        nonlocal greeting_index
+        nonlocal selected_class
+        nonlocal selected_class_data
+        nonlocal current_emotion
+
+        stage = "narrator_intro_pause"
+
+        narrator_intro_elapsed = 0.0
+        narrator_index = 0
+
+        dialogue_index = 0
+        dialogue_elapsed = 0.0
+
+        dialogue = []
+        dialogue_next_stage = None
+
+        white_elapsed = 0.0
+        shake_line_index = 0
+        room_elapsed = 0.0
+
+        inspection_pause_elapsed = 0.0
+        greeting_laugh_elapsed = 0.0
+        greeting_return_elapsed = 0.0
+
+        player_name = ""
+        greeting_index = 0
+        selected_class = 0
+        selected_class_data = None
+
+        current_emotion = "base"
+
+    # --------------------------------------------------------
+    # Информация о запуске
+    # --------------------------------------------------------
+
+    print()
+    print("=" * 60)
+    print("PALCHIK EVT_005 — SWEET ROLL")
+    print("=" * 60)
+    print("Эмоций Динары:", len(emotions))
+    print(
+        "Изображений классов:",
+        sum(image is not None for image in class_images)
+    )
+    print()
+    print("SPACE / ЛКМ — продолжить")
+    print("Ввод имени — клавиатура, ENTER")
+    print("1–3 / стрелки — выбор приветствия")
+    print("Стрелки / 1–4 — выбор класса")
+    print("ENTER — подтвердить класс")
+    print("КУХНЯ: WASD / СТРЕЛКИ — перемещение")
+    print("КУХНЯ: наведение — описание, ЛКМ — подойти и подобрать")
+    print("R — перезапуск")
+    print("ESC — выход")
+    print()
+
+    # --------------------------------------------------------
+    # Главный цикл
+    # --------------------------------------------------------
+    debug_stage = None
+    while running:
+        dt = min(clock.tick(FPS) / 1000.0, 0.05)
+
+        # ----------------------------------------------------
+        # Автоматические временные стадии
+        # ----------------------------------------------------
+
+        if stage == "narrator_intro_pause":
+            narrator_intro_elapsed += dt
+
+            if narrator_intro_elapsed >= INTRO_PAUSE_DURATION:
+                stage = "narrator"
+                dialogue_elapsed = 0.0
+
+        elif stage == "narrator":
+            dialogue_elapsed += dt
+
+        elif stage == "white_shake":
+            white_elapsed += dt
+
+        elif stage == "room_reveal":
+            room_elapsed += dt
+
+            # Движение и протирание глаз идут одновременно.
+            # Этот эффект оставлен без изменений.
+            if room_elapsed >= max(
+                MOVEMENT_DURATION,
+                EYE_REVEAL_START + EYE_REVEAL_DURATION
+            ):
+                begin_dinara_dialogue()
+
+        elif stage == "inspection_pause":
+            inspection_pause_elapsed += dt
+
+            if inspection_pause_elapsed >= INSPECTION_PAUSE_DURATION:
+                begin_after_inspection_pause()
+
+        elif stage == "greeting_laugh":
+            greeting_laugh_elapsed += dt
+
+            if greeting_laugh_elapsed >= GREETING_LAUGH_DURATION:
+                stage = "greeting_return"
+                greeting_return_elapsed = 0.0
+                current_emotion = "base"
+
+        elif stage == "greeting_return":
+            greeting_return_elapsed += dt
+
+            if greeting_return_elapsed >= GREETING_RETURN_DURATION:
+                begin_class_dialogue()
+
+        elif stage in (
+            "dinara_dialogue",
+            "name_introduction",
+            "after_greeting",
+            "class_dialogue",
+            "class_confirmed",
+        ):
+            dialogue_elapsed += dt
+
+        # ----------------------------------------------------
+        # События
+        # ----------------------------------------------------
+
+        for event in pygame.event.get():
+
+            if event.type == pygame.QUIT:
+                running = False
+
+            elif event.type == pygame.KEYDOWN:
+
+                if event.key == pygame.K_ESCAPE:
+                    running = False
+                    continue
+
+                # Ввод имени имеет приоритет над горячими клавишами.
+                if stage == "name_input":
+
+                    if event.key == pygame.K_BACKSPACE:
+                        player_name = player_name[:-1]
+
+                    elif event.key == pygame.K_RETURN:
+                        cleaned = player_name.strip()
+
+                        if cleaned:
+                            player_name = cleaned
+                            pygame.key.stop_text_input()
+                            begin_name_introduction()
+
+                    continue
+
+                # Перезапуск доступен вне ввода имени.
+                if event.key == pygame.K_r:
+                    reset_scene()
+                    pygame.key.stop_text_input()
+                    continue
+
+                if event.key == pygame.K_SPACE:
+                    advance_action()
+                    continue
+
+                # Выбор приветствия.
+                if stage == "greeting":
+
+                    if event.key in (
+                        pygame.K_LEFT,
+                        pygame.K_UP
+                    ):
+                        greeting_index = (
+                            greeting_index - 1
+                        ) % len(GREETING_CHOICES)
+
+                    elif event.key in (
+                        pygame.K_RIGHT,
+                        pygame.K_DOWN
+                    ):
+                        greeting_index = (
+                            greeting_index + 1
+                        ) % len(GREETING_CHOICES)
+
+                    elif event.key in (
+                        pygame.K_1,
+                        pygame.K_2,
+                        pygame.K_3
+                    ):
+                        greeting_index = event.key - pygame.K_1
+                        begin_greeting_response(greeting_index)
+
+                    elif event.key == pygame.K_RETURN:
+                        begin_greeting_response(greeting_index)
+
+                    continue
+
+                # Выбор класса.
+                if stage == "class_select":
+
+                    if event.key in (
+                        pygame.K_LEFT,
+                        pygame.K_UP
+                    ):
+                        selected_class = (
+                            selected_class - 1
+                        ) % len(CLASSES)
+
+                    elif event.key in (
+                        pygame.K_RIGHT,
+                        pygame.K_DOWN
+                    ):
+                        selected_class = (
+                            selected_class + 1
+                        ) % len(CLASSES)
+
+                    elif event.key in (
+                        pygame.K_1,
+                        pygame.K_2,
+                        pygame.K_3,
+                        pygame.K_4
+                    ):
+                        selected_class = event.key - pygame.K_1
+
+                    elif event.key == pygame.K_RETURN:
+                        confirm_class()
+
+                    continue
+
+            elif event.type == pygame.TEXTINPUT:
+
+                if stage == "name_input":
+                    candidate = player_name + event.text
+
+                    if len(candidate) <= 18:
+                        if all(
+                            character.isprintable()
+                            for character in event.text
+                        ):
+                            player_name = candidate
+
+            elif event.type == pygame.MOUSEBUTTONDOWN:
+
+                if event.button != 1:
+                    continue
+
+                if stage == "greeting":
+
+                    for index in range(len(GREETING_CHOICES)):
+                        rect = pygame.Rect(
+                            180,
+                            170 + index * 65,
+                            600,
+                            55
+                        )
+
+                        if rect.collidepoint(event.pos):
+                            begin_greeting_response(index)
+                            break
+
+                    continue
+
+                if stage == "class_select":
+
+                    for index, (x, y) in enumerate(CLASS_POSITIONS):
+                        rect = pygame.Rect(x, y, 440, 220)
+
+                        if rect.collidepoint(event.pos):
+                            if selected_class == index:
+                                confirm_class()
+                            else:
+                                selected_class = index
+                            break
+
+                    continue
+
+                if stage == "name_input":
+                    continue
+
+                if stage == "kitchen_scene":
+                    clicked_item = None
+
+                    for item in reversed(kitchen_items):
+                        hit_rect = item["rect"].inflate(14, 14)
+                        if hit_rect.collidepoint(event.pos):
+                            clicked_item = item
+                            break
+
+                    if clicked_item is not None:
+                        kitchen_move_target = clicked_item["approach"]
+                        kitchen_target_item_id = clicked_item["id"]
+                    else:
+                        kitchen_move_target = None
+                        kitchen_target_item_id = None
+
+                    continue
+
+                advance_action()
+
+        # ----------------------------------------------------
+        # Kitchen free-roam movement
+        # ----------------------------------------------------
+
+        if stage == "kitchen_scene":
+            keys = pygame.key.get_pressed()
+
+            move_x = (
+                int(keys[pygame.K_RIGHT] or keys[pygame.K_d])
+                - int(keys[pygame.K_LEFT] or keys[pygame.K_a])
+            )
+
+            move_y = (
+                int(keys[pygame.K_DOWN] or keys[pygame.K_s])
+                - int(keys[pygame.K_UP] or keys[pygame.K_w])
+            )
+
+            if move_x or move_y:
+                # Manual movement cancels automatic item approach.
+                kitchen_move_target = None
+                kitchen_target_item_id = None
+
+                magnitude = math.hypot(move_x, move_y)
+                step = KITCHEN_PLAYER_SPEED * dt / magnitude
+                kitchen_player_x += move_x * step
+                kitchen_player_y += move_y * step
+
+                kitchen_player_x = clamp(
+                    kitchen_player_x,
+                    *KITCHEN_PLAYER_X_BOUNDS
+                )
+                kitchen_player_y = clamp(
+                    kitchen_player_y,
+                    *KITCHEN_PLAYER_Y_BOUNDS
+                )
+
+            elif kitchen_move_target is not None:
+                target_x, target_y = kitchen_move_target
+                dx = target_x - kitchen_player_x
+                dy = target_y - kitchen_player_y
+                distance = math.hypot(dx, dy)
+
+                if distance <= KITCHEN_ITEM_ARRIVAL_RADIUS:
+                    kitchen_player_x = target_x
+                    kitchen_player_y = target_y
+
+                    target_item = next(
+                        (
+                            item for item in kitchen_items
+                            if item["id"] == kitchen_target_item_id
+                        ),
+                        None
+                    )
+
+                    if target_item is not None:
+                        approach_x, approach_y = target_item["approach"]
+                        actual_distance = math.hypot(
+                            kitchen_player_x - approach_x,
+                            kitchen_player_y - approach_y
+                        )
+
+                        # Pickup is allowed only after reaching the approach point.
+                        if actual_distance <= KITCHEN_ITEM_INTERACTION_RADIUS:
+                            kitchen_inventory.append(target_item["id"])
+                            kitchen_pickup_notice = "Подобрано: " + target_item["name"]
+                            kitchen_pickup_notice_timer = 1.8
+                            kitchen_items.remove(target_item)
+
+                    kitchen_move_target = None
+                    kitchen_target_item_id = None
+
+                elif distance > 0.0:
+                    step = min(KITCHEN_ITEM_SPEED * dt, distance)
+                    kitchen_player_x += dx / distance * step
+                    kitchen_player_y += dy / distance * step
+
+                    kitchen_player_x = clamp(
+                        kitchen_player_x,
+                        *KITCHEN_PLAYER_X_BOUNDS
+                    )
+                    kitchen_player_y = clamp(
+                        kitchen_player_y,
+                        *KITCHEN_PLAYER_Y_BOUNDS
+                    )
+
+            if kitchen_pickup_notice_timer > 0.0:
+                kitchen_pickup_notice_timer = max(
+                    0.0,
+                    kitchen_pickup_notice_timer - dt
+                )
+
+        if stage != debug_stage:
+            debug_stage = stage
+            print(
+                f"[STAGE] {stage!r} | "
+                f"room_size={room.get_size()} | "
+                f"room_pixel={room.get_at((10, 10))}"
+            )
+
+        # ----------------------------------------------------
+        # Отрисовка
+        # ----------------------------------------------------
+
+        frame = pygame.Surface((WIDTH, HEIGHT))
+        frame.fill(BLACK)
+
+        # ----------------------------------------------------
+        # Начальная пауза перед рассказчиком
+        # ----------------------------------------------------
+
+        if stage == "narrator_intro_pause":
+            frame.fill(BLACK)
+
+        # ----------------------------------------------------
+        # Рассказчик
+        # ----------------------------------------------------
+
+        elif stage == "narrator":
+
+            frame.fill(BLACK)
+
+            message = NARRATOR_LINES[narrator_index]
+
+            draw_dialogue_panel(
+                frame,
+                speaker_font,
+                message_font,
+                "Рассказчик",
+                message,
+                dialogue_elapsed
+            )
+
+        # ----------------------------------------------------
+        # Белый экран и тряска
+        # ----------------------------------------------------
+
+        elif stage == "white_shake":
+
+            frame.fill(WHITE)
+
+            message = WAKE_LINES[shake_line_index]
+
+            draw_dialogue_panel(
+                frame,
+                speaker_font,
+                message_font,
+                "Игрок",
+                message,
+                white_elapsed,
+                show_full=False
+            )
+
+        # ----------------------------------------------------
+        # Комната и пробуждение
+        # ----------------------------------------------------
+
+        elif stage == "room_reveal":
+
+            frame.blit(room, (0, 0))
+
+            movement_progress = ease_in_out(
+                room_elapsed / MOVEMENT_DURATION
+            )
+
+            x = START_X + (
+                END_X - START_X
+            ) * movement_progress
+
+            y = START_Y + (
+                END_Y - START_Y
+            ) * movement_progress
+
+            # Сначала силуэт.
+            draw_character(
+                frame,
+                silhouette,
+                x,
+                y
+            )
+
+            # Цветное изображение постепенно проявляется
+            # одновременно с эффектом пробуждения.
+            reveal_elapsed = max(
+                0.0,
+                room_elapsed - EYE_REVEAL_START
+            )
+
+            reveal_progress = ease_in_out(
+                reveal_elapsed / EYE_REVEAL_DURATION
+            )
+
+            draw_character(
+                frame,
+                neutral,
+                x,
+                y,
+                alpha=int(255 * reveal_progress)
+            )
+
+            draw_eye_reveal(frame, room_elapsed)
+
+        # ----------------------------------------------------
+        # Пауза после «Да...»
+        # ----------------------------------------------------
+
+        elif stage == "inspection_pause":
+
+            frame.blit(room, (0, 0))
+
+            draw_character(
+                frame,
+                neutral,
+                END_X,
+                END_Y
+            )
+
+        # ----------------------------------------------------
+        # Молчаливый смех Динары
+        # ----------------------------------------------------
+
+        elif stage == "greeting_laugh":
+
+            frame.blit(room, (0, 0))
+
+            draw_character(
+                frame,
+                emotions.get("Счастье", neutral),
+                END_X,
+                END_Y
+            )
+
+        # ----------------------------------------------------
+        # Динара возвращается к обычному выражению лица
+        # ----------------------------------------------------
+
+        elif stage == "greeting_return":
+
+            frame.blit(room, (0, 0))
+
+            draw_character(
+                frame,
+                neutral,
+                END_X,
+                END_Y
+            )
+
+        # ----------------------------------------------------
+        # Сцены с Динарой
+        # ----------------------------------------------------
+
+        elif stage in (
+            "dinara_dialogue",
+            "name_input",
+            "name_introduction",
+            "greeting",
+            "after_greeting",
+            "class_dialogue",
+        ):
+
+            frame.blit(room, (0, 0))
+
+            if stage == "name_input":
+                emotion_image = emotions.get(
+                    "вопрос",
+                    neutral
+                )
+
+            elif stage == "greeting":
+                emotion_image = emotions.get(
+                    "smile",
+                    neutral
+                )
+
+            else:
+                line = current_line()
+
+                emotion_name = (
+                    line.get("emotion", current_emotion)
+                    if line else current_emotion
+                )
+
+                emotion_image = emotions.get(
+                    emotion_name,
+                    neutral
+                )
+
+            draw_character(
+                frame,
+                emotion_image,
+                END_X,
+                END_Y
+            )
+
+            # Ввод имени.
+            if stage == "name_input":
+
+                draw_dialogue_panel(
+                    frame,
+                    speaker_font,
+                    message_font,
+                    "Игрок",
+                    "Меня зовут...",
+                    99999.0,
+                    allow_continue=False,
+                    show_full=True
+                )
+
+                input_rect = pygame.Rect(
+                    190, 230, 580, 65
+                )
+
+                pygame.draw.rect(
+                    frame,
+                    (15, 20, 34),
+                    input_rect,
+                    border_radius=6
+                )
+
+                pygame.draw.rect(
+                    frame,
+                    GOLD,
+                    input_rect,
+                    width=2,
+                    border_radius=6
+                )
+
+                name_text = player_name
+
+                if int(pygame.time.get_ticks() / 500) % 2 == 0:
+                    name_text += "|"
+
+                draw_centered_text(
+                    frame,
+                    message_font,
+                    name_text,
+                    TEXT_COLOR,
+                    input_rect.center
+                )
+
+                draw_centered_text(
+                    frame,
+                    small_font,
+                    "Введи имя и нажми ENTER",
+                    MUTED_COLOR,
+                    (WIDTH // 2, 315)
+                )
+
+            # Выбор приветствия.
+            elif stage == "greeting":
+
+                draw_dialogue_panel(
+                    frame,
+                    speaker_font,
+                    message_font,
+                    "Динара",
+                    "Ну что, как тебе моё имя?",
+                    99999.0,
+                    show_full=True
+                )
+
+                draw_greeting_choices(
+                    frame,
+                    small_font,
+                    greeting_index
+                )
+
+            # Обычные диалоги.
+            else:
+
+                line = current_line()
+
+                if line is not None:
+
+                    draw_dialogue_panel(
+                        frame,
+                        speaker_font,
+                        message_font,
+                        line["speaker"],
+                        line["text"],
+                        dialogue_elapsed
+                    )
+
+        # ----------------------------------------------------
+        # Выбор класса
+        # ----------------------------------------------------
+
+        elif stage == "class_select":
+
+            draw_class_selection(
+                frame,
+                title_font,
+                small_font,
+                class_images,
+                selected_class
+            )
+
+        # ----------------------------------------------------
+        # Последние согласованные реплики
+        # ----------------------------------------------------
+
+        elif stage == "kitchen_scene":
+
+            frame.blit(kitchen_room, (0, 0))
+
+            # World items are drawn over the background, behind characters.
+            mouse_pos = pygame.mouse.get_pos()
+            hovered_item = None
+
+            for item in kitchen_items:
+                item_rect = item["image"].get_rect(center=item["position"])
+                item["rect"] = item_rect
+                frame.blit(item["image"], item_rect)
+
+                if item_rect.collidepoint(mouse_pos):
+                    hovered_item = item
+
+            player_image = kitchen_class_images[selected_class]
+            player_foot_x = round(kitchen_player_x)
+            player_foot_y = round(kitchen_player_y)
+            dinara_foot_y = KITCHEN_DINARA_FOOT[1]
+
+            # Depth sorting: lower foot position is closer to the camera.
+            if player_foot_y < dinara_foot_y:
+                draw_ground_character(
+                    frame, player_image, player_foot_x, player_foot_y
+                )
+                draw_ground_character(
+                    frame, kitchen_dinara_image, *KITCHEN_DINARA_FOOT
+                )
+            else:
+                draw_ground_character(
+                    frame, kitchen_dinara_image, *KITCHEN_DINARA_FOOT
+                )
+                draw_ground_character(
+                    frame, player_image, player_foot_x, player_foot_y
+                )
+
+            # Visible destination marker while the hero is approaching an item.
+            if kitchen_move_target is not None:
+                marker = (
+                    round(kitchen_move_target[0]),
+                    round(kitchen_move_target[1])
+                )
+                pygame.draw.circle(frame, GOLD, marker, 12, 2)
+                pygame.draw.circle(frame, GOLD, marker, 3)
+
+            # Compact inventory count for this pickup prototype.
+            inventory_panel = pygame.Rect(14, 14, 156, 30)
+            pygame.draw.rect(frame, (15, 20, 34), inventory_panel, border_radius=5)
+            pygame.draw.rect(frame, PANEL_OUTER_BORDER, inventory_panel, 1, border_radius=5)
+            inventory_text = small_font.render(
+                f"Предметов: {len(kitchen_inventory)}", True, TEXT_COLOR
+            )
+            frame.blit(inventory_text, (inventory_panel.x + 9, inventory_panel.y + 6))
+
+            # Hover outline and compact item description.
+            if hovered_item is not None:
+                highlight = hovered_item["rect"].inflate(10, 10)
+                pygame.draw.rect(frame, GOLD, highlight, 2, border_radius=5)
+
+                tooltip_width = 238
+                tooltip_height = 78
+                tooltip_x = clamp(
+                    mouse_pos[0] + 15, 8, WIDTH - tooltip_width - 8
+                )
+                tooltip_y = clamp(
+                    mouse_pos[1] + 15, 8, HEIGHT - tooltip_height - 8
+                )
+                tooltip_rect = pygame.Rect(
+                    tooltip_x, tooltip_y, tooltip_width, tooltip_height
+                )
+                pygame.draw.rect(frame, (15, 20, 34), tooltip_rect, border_radius=5)
+                pygame.draw.rect(frame, PANEL_OUTER_BORDER, tooltip_rect, 1, border_radius=5)
+
+                title_surface = small_font.render(
+                    hovered_item["name"], True, GOLD
+                )
+                frame.blit(title_surface, (tooltip_x + 9, tooltip_y + 6))
+
+                description_lines = wrap_text(
+                    tooltip_font,
+                    hovered_item["description"],
+                    tooltip_width - 18
+                )[:2]
+
+                description_y = tooltip_y + 29
+                for description_line in description_lines:
+                    description_surface = tooltip_font.render(
+                        description_line, True, TEXT_COLOR
+                    )
+                    frame.blit(
+                        description_surface,
+                        (tooltip_x + 9, description_y)
+                    )
+                    description_y += description_surface.get_height() + 1
+
+                hint_surface = tooltip_font.render(
+                    "ЛКМ — подойти и подобрать", True, MUTED_COLOR
+                )
+                frame.blit(
+                    hint_surface,
+                    (tooltip_x + 9, tooltip_y + tooltip_height - 18)
+                )
+
+            if kitchen_pickup_notice_timer > 0.0 and kitchen_pickup_notice:
+                notice_surface = small_font.render(
+                    kitchen_pickup_notice, True, GOLD
+                )
+                notice_rect = notice_surface.get_rect(
+                    midtop=(WIDTH // 2, 16)
+                )
+                notice_panel = notice_rect.inflate(22, 12)
+                pygame.draw.rect(
+                    frame, (15, 20, 34), notice_panel, border_radius=5
+                )
+                pygame.draw.rect(
+                    frame, PANEL_OUTER_BORDER, notice_panel, 1, border_radius=5
+                )
+                frame.blit(notice_surface, notice_rect)
+
+        elif stage == "class_confirmed":
+
+            frame.blit(room, (0, 0))
+
+            draw_character(
+                frame,
+                neutral,
+                END_X,
+                END_Y
+            )
+
+            line = current_line()
+
+            if line is not None:
+                draw_dialogue_panel(
+                    frame,
+                    speaker_font,
+                    message_font,
+                    line["speaker"],
+                    line["text"],
+                    dialogue_elapsed
+                )
+
+        # ----------------------------------------------------
+        # Вывод
+        # ----------------------------------------------------
+
+        if stage == "white_shake":
+            draw_shaken_frame(
+                screen,
+                frame,
+                white_elapsed
+            )
+        else:
+            screen.blit(frame, (0, 0))
+
+        pygame.display.flip()
+
+    pygame.key.stop_text_input()
+    pygame.quit()
+    sys.exit()
+
+
+if __name__ == "__main__":
+    main()
