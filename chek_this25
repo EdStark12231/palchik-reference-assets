@@ -1,6 +1,7 @@
 from pathlib import Path
 import sys
 import math
+import random
 import pygame
 
 
@@ -42,6 +43,37 @@ KITCHEN_ITEM_APPROACH_Y = 385.0
 KITCHEN_ITEM_SPEED = 230.0
 KITCHEN_ITEM_ARRIVAL_RADIUS = 8.0
 KITCHEN_ITEM_INTERACTION_RADIUS = 40.0
+
+# Точка, в которую игрок подходит для передачи предмета Динаре.
+KITCHEN_DINARA_APPROACH = (680.0, 385.0)
+
+# Доступные запросы Динары. Варенье намеренно отсутствует.
+KITCHEN_REQUESTABLE_ITEMS = (
+    "eggs",
+    "milk",
+    "flour",
+    "butter",
+    "spoon",
+)
+
+# Форма предмета в запросе Динары.
+KITCHEN_REQUEST_TEXT = {
+    "eggs": "яйца",
+    "milk": "молоко",
+    "flour": "муку",
+    "butter": "масло",
+    "spoon": "ложку",
+}
+
+# Форма предмета в реплике об ошибочной доставке.
+KITCHEN_ITEM_DISPLAY_TEXT = {
+    "eggs": "яйца",
+    "milk": "молоко",
+    "flour": "муку",
+    "butter": "масло",
+    "spoon": "ложку",
+    "jam": "банку варенья",
+}
 
 # id, name, description, sheet, column, row, screen position.
 # Sheet 1: 4 columns x 6 rows. Sheet 2: 4 columns x 5 rows.
@@ -525,10 +557,14 @@ def load_kitchen_item_sprites():
     }
 
     if sheet_1.get_size() != expected_sizes["props1"]:
-        raise ValueError(f"Unexpected first item sheet size: {sheet_1.get_size()}")
+        raise ValueError(
+            f"Unexpected first item sheet size: {sheet_1.get_size()}"
+        )
 
     if sheet_2.get_size() != expected_sizes["props2"]:
-        raise ValueError(f"Unexpected second item sheet size: {sheet_2.get_size()}")
+        raise ValueError(
+            f"Unexpected second item sheet size: {sheet_2.get_size()}"
+        )
 
     sheets = {
         "props1": (sheet_1, 4, 6),
@@ -537,7 +573,16 @@ def load_kitchen_item_sprites():
 
     result = {}
 
-    for item_id, name, description, sheet_key, column, row, position in KITCHEN_ITEM_LAYOUT:
+    for (
+        item_id,
+        name,
+        description,
+        sheet_key,
+        column,
+        row,
+        position
+    ) in KITCHEN_ITEM_LAYOUT:
+
         sheet, columns, rows = sheets[sheet_key]
 
         x1 = round(column * sheet.get_width() / columns)
@@ -558,20 +603,27 @@ def load_kitchen_item_sprites():
         ]
 
         if all(
-            c.a >= 250 and max(c.r, c.g, c.b) <= 8
-            for c in corners
+            color.a >= 250 and max(color.r, color.g, color.b) <= 8
+            for color in corners
         ):
             cell.set_colorkey((0, 0, 0))
-            transparent = pygame.Surface(cell.get_size(), pygame.SRCALPHA)
+            transparent = pygame.Surface(
+                cell.get_size(),
+                pygame.SRCALPHA
+            )
             transparent.blit(cell, (0, 0))
             cell = transparent
 
         bounds = cell.get_bounding_rect()
+
         if bounds.width <= 0 or bounds.height <= 0:
             raise ValueError(f"Empty sprite cell for item: {item_id}")
 
         sprite = cell.subsurface(bounds).copy()
-        result[item_id] = fit_image(sprite, *KITCHEN_ITEM_MAX_SIZE)
+        result[item_id] = fit_image(
+            sprite,
+            *KITCHEN_ITEM_MAX_SIZE
+        )
 
     return result
 
@@ -579,15 +631,28 @@ def load_kitchen_item_sprites():
 def build_kitchen_items(sprites):
     items = []
 
-    for item_id, name, description, sheet_key, column, row, position in KITCHEN_ITEM_LAYOUT:
+    for (
+        item_id,
+        name,
+        description,
+        sheet_key,
+        column,
+        row,
+        position
+    ) in KITCHEN_ITEM_LAYOUT:
+
         image = sprites[item_id]
+
         items.append({
             "id": item_id,
             "name": name,
             "description": description,
             "image": image,
             "position": position,
-            "approach": (float(position[0]), KITCHEN_ITEM_APPROACH_Y),
+            "approach": (
+                float(position[0]),
+                KITCHEN_ITEM_APPROACH_Y
+            ),
             "rect": image.get_rect(center=position),
         })
 
@@ -660,10 +725,6 @@ def draw_character(surface, image, x, y, alpha=255):
     surface.blit(sprite, rect)
 
 
-# ------------------------------------------------------------
-# CHARACTER POSITIONING HELPERS
-# ------------------------------------------------------------
-
 def draw_ground_character(surface, image, x, foot_y):
     if image is None:
         return
@@ -672,6 +733,7 @@ def draw_ground_character(surface, image, x, foot_y):
         midbottom=(round(x), round(foot_y))
     )
     surface.blit(image, rect)
+
 
 # ============================================================
 # ПРОТИРАНИЕ ГЛАЗ
@@ -969,7 +1031,6 @@ def main():
     neutral = emotions["base"]
     silhouette = make_silhouette(neutral)
 
-    # Free-roam kitchen uses the separate chibi artwork.
     chibi_dinara_source = load_image(CHIBI_PATH)
     kitchen_dinara_image = fit_image(
         chibi_dinara_source,
@@ -985,7 +1046,7 @@ def main():
     kitchen_items = build_kitchen_items(kitchen_item_sprites)
 
     # --------------------------------------------------------
-    # Состояние
+    # Состояние вступления
     # --------------------------------------------------------
 
     stage = "narrator_intro_pause"
@@ -1015,18 +1076,36 @@ def main():
 
     current_emotion = "base"
 
+    # --------------------------------------------------------
+    # Состояние кухни
+    # --------------------------------------------------------
+
     kitchen_player_x = float(KITCHEN_PLAYER_FOOT[0])
     kitchen_player_y = float(KITCHEN_PLAYER_FOOT[1])
+
     kitchen_move_target = None
+    kitchen_target_action = None
     kitchen_target_item_id = None
-    kitchen_inventory = []
-    kitchen_pickup_notice = ""
-    kitchen_pickup_notice_timer = 0.0
+
+    kitchen_carried_item = None
+
+    kitchen_requested_item_id = None
+    kitchen_delivered_requested_items = set()
+    kitchen_delivery_counts = {}
+
+    kitchen_notice = ""
+    kitchen_notice_timer = 0.0
+
+    # Диалоги кухни отделены от вступительной системы диалогов.
+    kitchen_dialogue_lines = []
+    kitchen_dialogue_index = 0
+    kitchen_dialogue_elapsed = 0.0
+    kitchen_dialogue_next_action = None
 
     running = True
 
     # --------------------------------------------------------
-    # Единая последовательность диалогов
+    # Единая последовательность вступительных диалогов
     # --------------------------------------------------------
 
     def set_dialogue(lines, next_stage):
@@ -1049,52 +1128,224 @@ def main():
 
         return dialogue[dialogue_index]
 
-    def advance_dialogue():
-        nonlocal dialogue_index
-        nonlocal dialogue_elapsed
-        nonlocal stage
-        nonlocal current_emotion
+    # --------------------------------------------------------
+    # Отдельная система диалогов кухни
+    # --------------------------------------------------------
 
-        line = current_line()
+    def start_kitchen_dialogue(lines, next_action):
+        nonlocal stage
+        nonlocal kitchen_dialogue_lines
+        nonlocal kitchen_dialogue_index
+        nonlocal kitchen_dialogue_elapsed
+        nonlocal kitchen_dialogue_next_action
+
+        kitchen_dialogue_lines = lines
+        kitchen_dialogue_index = 0
+        kitchen_dialogue_elapsed = 0.0
+        kitchen_dialogue_next_action = next_action
+        stage = "kitchen_dialogue"
+
+    def current_kitchen_line():
+        if not kitchen_dialogue_lines:
+            return None
+
+        if not (
+            0 <= kitchen_dialogue_index
+            < len(kitchen_dialogue_lines)
+        ):
+            return None
+
+        return kitchen_dialogue_lines[kitchen_dialogue_index]
+
+    def advance_kitchen_dialogue():
+        nonlocal stage
+        nonlocal kitchen_dialogue_index
+        nonlocal kitchen_dialogue_elapsed
+        nonlocal kitchen_dialogue_lines
+        nonlocal kitchen_dialogue_next_action
+
+        line = current_kitchen_line()
 
         if line is None:
+            stage = "kitchen_scene"
             return
 
-        # Первое нажатие после начала печати:
-        # показать всю текущую реплику.
+        # Первое нажатие завершает печать текущей реплики.
         if visible_character_count(
             line["text"],
-            dialogue_elapsed
+            kitchen_dialogue_elapsed
         ) < len(line["text"]):
-
-            dialogue_elapsed = text_duration(line["text"]) + 1.0
-            return
-
-        # Следующее нажатие — следующая реплика.
-        dialogue_index += 1
-        dialogue_elapsed = 0.0
-
-        next_line = current_line()
-
-        if next_line is not None:
-            current_emotion = next_line.get(
-                "emotion",
-                current_emotion
+            kitchen_dialogue_elapsed = (
+                text_duration(line["text"]) + 1.0
             )
             return
 
-        stage = dialogue_next_stage
+        # Следующее нажатие переводит к следующей реплике.
+        kitchen_dialogue_index += 1
+        kitchen_dialogue_elapsed = 0.0
 
-        if stage == "name_input":
-            pygame.key.start_text_input()
+        next_line = current_kitchen_line()
 
-        if stage == "inspection_pause":
-            nonlocal inspection_pause_elapsed
-            inspection_pause_elapsed = 0.0
-            current_emotion = "base"
+        if next_line is not None:
+            return
+
+        next_action = kitchen_dialogue_next_action
+        kitchen_dialogue_lines = []
+        kitchen_dialogue_index = 0
+        kitchen_dialogue_elapsed = 0.0
+        kitchen_dialogue_next_action = None
+
+        if next_action == "next_request":
+            begin_kitchen_next_request_dialogue()
+        else:
+            stage = "kitchen_scene"
 
     # --------------------------------------------------------
-    # Переходы сценария
+    # Сценарий кухни: запросы и реакции Динары
+    # --------------------------------------------------------
+
+    def begin_kitchen_intro_dialogue():
+        start_kitchen_dialogue(
+            [
+                {
+                    "speaker": "Динара",
+                    "text": "Чтож, начнём...",
+                    "emotion": "smile",
+                }
+            ],
+            "next_request"
+        )
+
+    def begin_kitchen_next_request_dialogue():
+        nonlocal kitchen_requested_item_id
+
+        remaining_items = [
+            item_id
+            for item_id in KITCHEN_REQUESTABLE_ITEMS
+            if item_id not in kitchen_delivered_requested_items
+        ]
+
+        if not remaining_items:
+            kitchen_requested_item_id = None
+
+            start_kitchen_dialogue(
+                [
+                    {
+                        "speaker": "Динара",
+                        "text": "Вот теперь всё! Спасибо за помощь.",
+                        "emotion": "Очень довольна",
+                    }
+                ],
+                "scene"
+            )
+            return
+
+        kitchen_requested_item_id = random.choice(remaining_items)
+        requested_name = KITCHEN_REQUEST_TEXT[
+            kitchen_requested_item_id
+        ]
+
+        start_kitchen_dialogue(
+            [
+                {
+                    "speaker": "Динара",
+                    "text": f"Для начала принеси мне {requested_name}.",
+                    "emotion": "вопрос",
+                }
+            ],
+            "scene"
+        )
+
+    def begin_kitchen_item_delivery():
+        nonlocal kitchen_carried_item
+        nonlocal kitchen_requested_item_id
+        nonlocal kitchen_notice
+        nonlocal kitchen_notice_timer
+        nonlocal kitchen_move_target
+        nonlocal kitchen_target_action
+        nonlocal kitchen_target_item_id
+
+        delivered_item = kitchen_carried_item
+
+        if delivered_item is None:
+            return
+
+        item_id = delivered_item["id"]
+        item_name = KITCHEN_ITEM_DISPLAY_TEXT.get(
+            item_id,
+            delivered_item["name"].lower()
+        )
+
+        kitchen_carried_item = None
+        kitchen_move_target = None
+        kitchen_target_action = None
+        kitchen_target_item_id = None
+
+        kitchen_notice = ""
+        kitchen_notice_timer = 0.0
+
+        if item_id == kitchen_requested_item_id:
+            kitchen_delivered_requested_items.add(item_id)
+            kitchen_requested_item_id = None
+
+            start_kitchen_dialogue(
+                [
+                    {
+                        "speaker": "Динара",
+                        "text": "Отлично! Это именно то, что нужно. Спасибо!",
+                        "emotion": "Очень довольна",
+                    }
+                ],
+                "next_request"
+            )
+            return
+
+        # Неверный предмет возвращается в исходный список.
+        # Используется тот же объект: его позиция и rect сохраняются.
+        kitchen_items.append(delivered_item)
+
+        wrong_count = kitchen_delivery_counts.get(item_id, 0) + 1
+        kitchen_delivery_counts[item_id] = wrong_count
+
+        requested_name = KITCHEN_REQUEST_TEXT.get(
+            kitchen_requested_item_id,
+            "нужный предмет"
+        )
+
+        if wrong_count == 1:
+            reaction = (
+                f"Спасибо, но сейчас я просила {requested_name}, "
+                f"а не {item_name}."
+            )
+            emotion = "недовольна"
+
+        elif wrong_count == 2:
+            reaction = (
+                f"Это опять {item_name}. "
+                f"Мне всё ещё нужна {requested_name}."
+            )
+            emotion = "недовольна"
+
+        else:
+            reaction = (
+                f"Опять {item_name}! "
+                f"Пожалуйста, принеси уже {requested_name}."
+            )
+            emotion = "недовольна"
+
+        start_kitchen_dialogue(
+            [
+                {
+                    "speaker": "Динара",
+                    "text": reaction,
+                    "emotion": emotion,
+                }
+            ],
+            "scene"
+        )
+
+    # --------------------------------------------------------
+    # Переходы вступительного сценария
     # --------------------------------------------------------
 
     def begin_white_shake():
@@ -1265,8 +1516,6 @@ def main():
                 "emotion": "base",
             })
 
-        # После последней реплики игрока запускается
-        # отдельная сцена молчаливого смеха Динары.
         set_dialogue(lines, "greeting_laugh")
 
     def begin_class_dialogue():
@@ -1291,32 +1540,53 @@ def main():
         nonlocal stage
         nonlocal selected_class_data
         nonlocal current_emotion
+
         nonlocal kitchen_player_x
         nonlocal kitchen_player_y
         nonlocal kitchen_items
         nonlocal kitchen_move_target
+        nonlocal kitchen_target_action
         nonlocal kitchen_target_item_id
-        nonlocal kitchen_inventory
-        nonlocal kitchen_pickup_notice
-        nonlocal kitchen_pickup_notice_timer
+        nonlocal kitchen_carried_item
+        nonlocal kitchen_requested_item_id
+        nonlocal kitchen_notice
+        nonlocal kitchen_notice_timer
+        nonlocal kitchen_dialogue_lines
+        nonlocal kitchen_dialogue_index
+        nonlocal kitchen_dialogue_elapsed
+        nonlocal kitchen_dialogue_next_action
 
         selected_class_data = CLASSES[selected_class]
+
+        # Полный сброс состояния кухни перед первым входом.
         kitchen_player_x = float(KITCHEN_PLAYER_FOOT[0])
         kitchen_player_y = float(KITCHEN_PLAYER_FOOT[1])
+
         kitchen_items = build_kitchen_items(kitchen_item_sprites)
+
         kitchen_move_target = None
+        kitchen_target_action = None
         kitchen_target_item_id = None
-        kitchen_inventory.clear()
-        kitchen_pickup_notice = ""
-        kitchen_pickup_notice_timer = 0.0
+
+        kitchen_carried_item = None
+        kitchen_requested_item_id = None
+
+        kitchen_delivered_requested_items.clear()
+        kitchen_delivery_counts.clear()
+
+        kitchen_notice = ""
+        kitchen_notice_timer = 0.0
+
+        kitchen_dialogue_lines = []
+        kitchen_dialogue_index = 0
+        kitchen_dialogue_elapsed = 0.0
+        kitchen_dialogue_next_action = None
 
         stage = "class_confirmed"
         current_emotion = "base"
 
         class_name = selected_class_data["name"].lower()
 
-        # Здесь сценарий останавливается.
-        # Продолжение истории пока не добавляется.
         set_dialogue(
             [
                 {
@@ -1330,12 +1600,62 @@ def main():
                     "emotion": "base",
                 },
             ],
-            "kitchen_scene"
+            "kitchen_intro"
         )
 
     # --------------------------------------------------------
+    # Продолжение вступительных диалогов
+    # --------------------------------------------------------
+
+    def advance_dialogue():
+        nonlocal dialogue_index
+        nonlocal dialogue_elapsed
+        nonlocal stage
+        nonlocal current_emotion
+        nonlocal inspection_pause_elapsed
+
+        line = current_line()
+
+        if line is None:
+            return
+
+        # Первое нажатие после начала печати:
+        # показать всю текущую реплику.
+        if visible_character_count(
+            line["text"],
+            dialogue_elapsed
+        ) < len(line["text"]):
+
+            dialogue_elapsed = text_duration(line["text"]) + 1.0
+            return
+
+        # Следующее нажатие — следующая реплика.
+        dialogue_index += 1
+        dialogue_elapsed = 0.0
+
+        next_line = current_line()
+
+        if next_line is not None:
+            current_emotion = next_line.get(
+                "emotion",
+                current_emotion
+            )
+            return
+
+        stage = dialogue_next_stage
+
+        if stage == "name_input":
+            pygame.key.start_text_input()
+
+        elif stage == "inspection_pause":
+            inspection_pause_elapsed = 0.0
+            current_emotion = "base"
+
+        elif stage == "kitchen_intro":
+            begin_kitchen_intro_dialogue()
+
+    # --------------------------------------------------------
     # Общий обработчик продолжения
-    # SPACE и ЛКМ вызывают именно эту функцию.
     # --------------------------------------------------------
 
     def advance_action():
@@ -1343,14 +1663,18 @@ def main():
         nonlocal dialogue_elapsed
         nonlocal shake_line_index
         nonlocal white_elapsed
-        nonlocal stage
 
         if stage in (
             "narrator_intro_pause",
             "inspection_pause",
             "greeting_laugh",
             "greeting_return",
+            "kitchen_scene",
         ):
+            return
+
+        if stage == "kitchen_dialogue":
+            advance_kitchen_dialogue()
             return
 
         if stage == "narrator":
@@ -1399,7 +1723,7 @@ def main():
             advance_dialogue()
 
     # --------------------------------------------------------
-    # Сброс
+    # Сброс сцены
     # --------------------------------------------------------
 
     def reset_scene():
@@ -1421,6 +1745,21 @@ def main():
         nonlocal selected_class
         nonlocal selected_class_data
         nonlocal current_emotion
+
+        nonlocal kitchen_player_x
+        nonlocal kitchen_player_y
+        nonlocal kitchen_items
+        nonlocal kitchen_move_target
+        nonlocal kitchen_target_action
+        nonlocal kitchen_target_item_id
+        nonlocal kitchen_carried_item
+        nonlocal kitchen_requested_item_id
+        nonlocal kitchen_notice
+        nonlocal kitchen_notice_timer
+        nonlocal kitchen_dialogue_lines
+        nonlocal kitchen_dialogue_index
+        nonlocal kitchen_dialogue_elapsed
+        nonlocal kitchen_dialogue_next_action
 
         stage = "narrator_intro_pause"
 
@@ -1448,6 +1787,31 @@ def main():
 
         current_emotion = "base"
 
+        # Полный возврат кухни к начальному состоянию.
+        kitchen_player_x = float(KITCHEN_PLAYER_FOOT[0])
+        kitchen_player_y = float(KITCHEN_PLAYER_FOOT[1])
+
+        # Список пересоздаётся; kitchen_items объявлен как nonlocal.
+        kitchen_items = build_kitchen_items(kitchen_item_sprites)
+
+        kitchen_move_target = None
+        kitchen_target_action = None
+        kitchen_target_item_id = None
+
+        kitchen_carried_item = None
+        kitchen_requested_item_id = None
+
+        kitchen_delivered_requested_items.clear()
+        kitchen_delivery_counts.clear()
+
+        kitchen_notice = ""
+        kitchen_notice_timer = 0.0
+
+        kitchen_dialogue_lines = []
+        kitchen_dialogue_index = 0
+        kitchen_dialogue_elapsed = 0.0
+        kitchen_dialogue_next_action = None
+
     # --------------------------------------------------------
     # Информация о запуске
     # --------------------------------------------------------
@@ -1462,13 +1826,15 @@ def main():
         sum(image is not None for image in class_images)
     )
     print()
-    print("SPACE / ЛКМ — продолжить")
+    print("SPACE / ЛКМ — продолжить диалог")
     print("Ввод имени — клавиатура, ENTER")
     print("1–3 / стрелки — выбор приветствия")
     print("Стрелки / 1–4 — выбор класса")
     print("ENTER — подтвердить класс")
     print("КУХНЯ: WASD / СТРЕЛКИ — перемещение")
-    print("КУХНЯ: наведение — описание, ЛКМ — подойти и подобрать")
+    print("КУХНЯ: наведение — описание предмета")
+    print("КУХНЯ: ЛКМ по предмету — подойти и подобрать")
+    print("КУХНЯ: ЛКМ по Динаре с предметом — подойти и передать")
     print("R — перезапуск")
     print("ESC — выход")
     print()
@@ -1476,7 +1842,9 @@ def main():
     # --------------------------------------------------------
     # Главный цикл
     # --------------------------------------------------------
+
     debug_stage = None
+
     while running:
         dt = min(clock.tick(FPS) / 1000.0, 0.05)
 
@@ -1501,7 +1869,6 @@ def main():
             room_elapsed += dt
 
             # Движение и протирание глаз идут одновременно.
-            # Этот эффект оставлен без изменений.
             if room_elapsed >= max(
                 MOVEMENT_DURATION,
                 EYE_REVEAL_START + EYE_REVEAL_DURATION
@@ -1536,6 +1903,9 @@ def main():
             "class_confirmed",
         ):
             dialogue_elapsed += dt
+
+        elif stage == "kitchen_dialogue":
+            kitchen_dialogue_elapsed += dt
 
         # ----------------------------------------------------
         # События
@@ -1642,6 +2012,21 @@ def main():
 
                     continue
 
+                # В кухне ручное движение отменяет автоподход.
+                if stage == "kitchen_scene" and event.key in (
+                    pygame.K_LEFT,
+                    pygame.K_RIGHT,
+                    pygame.K_UP,
+                    pygame.K_DOWN,
+                    pygame.K_a,
+                    pygame.K_d,
+                    pygame.K_w,
+                    pygame.K_s,
+                ):
+                    kitchen_move_target = None
+                    kitchen_target_action = None
+                    kitchen_target_item_id = None
+
             elif event.type == pygame.TEXTINPUT:
 
                 if stage == "name_input":
@@ -1657,6 +2042,11 @@ def main():
             elif event.type == pygame.MOUSEBUTTONDOWN:
 
                 if event.button != 1:
+                    continue
+
+                # Кухонный диалог имеет отдельный обработчик.
+                if stage == "kitchen_dialogue":
+                    advance_kitchen_dialogue()
                     continue
 
                 if stage == "greeting":
@@ -1692,20 +2082,60 @@ def main():
                 if stage == "name_input":
                     continue
 
+                # ------------------------------------------------
+                # Взаимодействия кухни
+                # ------------------------------------------------
+
                 if stage == "kitchen_scene":
+
+                    dinara_hit_rect = kitchen_dinara_image.get_rect(
+                        midbottom=KITCHEN_DINARA_FOOT
+                    ).inflate(28, 24)
+
+                    clicked_dinara = dinara_hit_rect.collidepoint(
+                        event.pos
+                    )
+
+                    # Когда игрок несёт предмет, разрешена только
+                    # передача Динаре. Другие клики не меняют маршрут.
+                    if kitchen_carried_item is not None:
+
+                        if clicked_dinara:
+                            kitchen_move_target = (
+                                KITCHEN_DINARA_APPROACH
+                            )
+                            kitchen_target_action = "deliver"
+                            kitchen_target_item_id = None
+                        else:
+                            kitchen_notice = (
+                                "Сначала передай предмет Динаре."
+                            )
+                            kitchen_notice_timer = 1.8
+
+                        continue
+
+                    # Без предмета клик по Динаре ничего не делает.
+                    if clicked_dinara:
+                        continue
+
                     clicked_item = None
 
                     for item in reversed(kitchen_items):
                         hit_rect = item["rect"].inflate(14, 14)
+
                         if hit_rect.collidepoint(event.pos):
                             clicked_item = item
                             break
 
                     if clicked_item is not None:
                         kitchen_move_target = clicked_item["approach"]
+                        kitchen_target_action = "pickup"
                         kitchen_target_item_id = clicked_item["id"]
+
                     else:
+                        # Клик по свободному месту отменяет автоподход.
                         kitchen_move_target = None
+                        kitchen_target_action = None
                         kitchen_target_item_id = None
 
                     continue
@@ -1717,6 +2147,7 @@ def main():
         # ----------------------------------------------------
 
         if stage == "kitchen_scene":
+
             keys = pygame.key.get_pressed()
 
             move_x = (
@@ -1730,12 +2161,14 @@ def main():
             )
 
             if move_x or move_y:
-                # Manual movement cancels automatic item approach.
+                # Ручное движение отменяет автоподход.
                 kitchen_move_target = None
+                kitchen_target_action = None
                 kitchen_target_item_id = None
 
                 magnitude = math.hypot(move_x, move_y)
                 step = KITCHEN_PLAYER_SPEED * dt / magnitude
+
                 kitchen_player_x += move_x * step
                 kitchen_player_y += move_y * step
 
@@ -1750,41 +2183,63 @@ def main():
 
             elif kitchen_move_target is not None:
                 target_x, target_y = kitchen_move_target
+
                 dx = target_x - kitchen_player_x
                 dy = target_y - kitchen_player_y
                 distance = math.hypot(dx, dy)
 
                 if distance <= KITCHEN_ITEM_ARRIVAL_RADIUS:
+                    # Персонаж действительно дошёл до точки.
                     kitchen_player_x = target_x
                     kitchen_player_y = target_y
 
-                    target_item = next(
-                        (
-                            item for item in kitchen_items
-                            if item["id"] == kitchen_target_item_id
-                        ),
-                        None
-                    )
-
-                    if target_item is not None:
-                        approach_x, approach_y = target_item["approach"]
-                        actual_distance = math.hypot(
-                            kitchen_player_x - approach_x,
-                            kitchen_player_y - approach_y
+                    if kitchen_target_action == "pickup":
+                        target_item = next(
+                            (
+                                item for item in kitchen_items
+                                if item["id"] == kitchen_target_item_id
+                            ),
+                            None
                         )
 
-                        # Pickup is allowed only after reaching the approach point.
-                        if actual_distance <= KITCHEN_ITEM_INTERACTION_RADIUS:
-                            kitchen_inventory.append(target_item["id"])
-                            kitchen_pickup_notice = "Подобрано: " + target_item["name"]
-                            kitchen_pickup_notice_timer = 1.8
-                            kitchen_items.remove(target_item)
+                        if (
+                            target_item is not None
+                            and kitchen_carried_item is None
+                        ):
+                            approach_x, approach_y = target_item["approach"]
+
+                            actual_distance = math.hypot(
+                                kitchen_player_x - approach_x,
+                                kitchen_player_y - approach_y
+                            )
+
+                            if (
+                                actual_distance
+                                <= KITCHEN_ITEM_INTERACTION_RADIUS
+                            ):
+                                # Предмет исчезает из мира только
+                                # после достижения точки подбора.
+                                kitchen_items.remove(target_item)
+                                kitchen_carried_item = target_item
+
+                                kitchen_notice = (
+                                    "Подобрано: " + target_item["name"]
+                                )
+                                kitchen_notice_timer = 1.8
+
+                    elif kitchen_target_action == "deliver":
+                        if kitchen_carried_item is not None:
+                            # Передача происходит только после того,
+                            # как персонаж дошёл до Динары.
+                            begin_kitchen_item_delivery()
 
                     kitchen_move_target = None
+                    kitchen_target_action = None
                     kitchen_target_item_id = None
 
                 elif distance > 0.0:
                     step = min(KITCHEN_ITEM_SPEED * dt, distance)
+
                     kitchen_player_x += dx / distance * step
                     kitchen_player_y += dy / distance * step
 
@@ -1797,14 +2252,19 @@ def main():
                         *KITCHEN_PLAYER_Y_BOUNDS
                     )
 
-            if kitchen_pickup_notice_timer > 0.0:
-                kitchen_pickup_notice_timer = max(
+            if kitchen_notice_timer > 0.0:
+                kitchen_notice_timer = max(
                     0.0,
-                    kitchen_pickup_notice_timer - dt
+                    kitchen_notice_timer - dt
                 )
+
+        # ----------------------------------------------------
+        # Отладочная информация о смене стадий
+        # ----------------------------------------------------
 
         if stage != debug_stage:
             debug_stage = stage
+
             print(
                 f"[STAGE] {stage!r} | "
                 f"room_size={room.get_size()} | "
@@ -1959,7 +2419,7 @@ def main():
             )
 
         # ----------------------------------------------------
-        # Сцены с Динарой
+        # Сцены с Динарой, включая последние реплики класса
         # ----------------------------------------------------
 
         elif stage in (
@@ -1969,6 +2429,7 @@ def main():
             "greeting",
             "after_greeting",
             "class_dialogue",
+            "class_confirmed",
         ):
 
             frame.blit(room, (0, 0))
@@ -2078,7 +2539,7 @@ def main():
                     greeting_index
                 )
 
-            # Обычные диалоги.
+            # Обычные диалоги, включая class_confirmed.
             else:
 
                 line = current_line()
@@ -2109,87 +2570,271 @@ def main():
             )
 
         # ----------------------------------------------------
-        # Последние согласованные реплики
+        # Кухня: свободное перемещение и диалоги
         # ----------------------------------------------------
 
-        elif stage == "kitchen_scene":
+        elif stage in ("kitchen_scene", "kitchen_dialogue"):
 
             frame.blit(kitchen_room, (0, 0))
 
-            # World items are drawn over the background, behind characters.
             mouse_pos = pygame.mouse.get_pos()
             hovered_item = None
 
+            # ------------------------------------------------
+            # Предметы мира
+            # ------------------------------------------------
+
             for item in kitchen_items:
-                item_rect = item["image"].get_rect(center=item["position"])
+                item_rect = item["image"].get_rect(
+                    center=item["position"]
+                )
+
+                # rect в объекте хранит исходную точку предмета.
+                # Предметы не перемещаются при переносе игроком.
                 item["rect"] = item_rect
+
                 frame.blit(item["image"], item_rect)
 
-                if item_rect.collidepoint(mouse_pos):
+                if item_rect.inflate(10, 10).collidepoint(mouse_pos):
                     hovered_item = item
 
+            # ------------------------------------------------
+            # Персонажи с сортировкой по глубине
+            # ------------------------------------------------
+
             player_image = kitchen_class_images[selected_class]
+
             player_foot_x = round(kitchen_player_x)
             player_foot_y = round(kitchen_player_y)
+
             dinara_foot_y = KITCHEN_DINARA_FOOT[1]
 
-            # Depth sorting: lower foot position is closer to the camera.
             if player_foot_y < dinara_foot_y:
                 draw_ground_character(
-                    frame, player_image, player_foot_x, player_foot_y
-                )
-                draw_ground_character(
-                    frame, kitchen_dinara_image, *KITCHEN_DINARA_FOOT
-                )
-            else:
-                draw_ground_character(
-                    frame, kitchen_dinara_image, *KITCHEN_DINARA_FOOT
-                )
-                draw_ground_character(
-                    frame, player_image, player_foot_x, player_foot_y
+                    frame,
+                    player_image,
+                    player_foot_x,
+                    player_foot_y
                 )
 
-            # Visible destination marker while the hero is approaching an item.
+                draw_ground_character(
+                    frame,
+                    kitchen_dinara_image,
+                    *KITCHEN_DINARA_FOOT
+                )
+
+            else:
+                draw_ground_character(
+                    frame,
+                    kitchen_dinara_image,
+                    *KITCHEN_DINARA_FOOT
+                )
+
+                draw_ground_character(
+                    frame,
+                    player_image,
+                    player_foot_x,
+                    player_foot_y
+                )
+
+            # ------------------------------------------------
+            # Предмет в руках персонажа
+            # ------------------------------------------------
+
+            if kitchen_carried_item is not None:
+                carried_image = kitchen_carried_item["image"]
+
+                carried_rect = carried_image.get_rect(
+                    center=(
+                        player_foot_x + 27,
+                        player_foot_y - 112
+                    )
+                )
+
+                # Рисуется поверх персонажа, чтобы предмет
+                # оставался заметным во время движения.
+                frame.blit(carried_image, carried_rect)
+
+            # ------------------------------------------------
+            # Маркер точки назначения
+            # ------------------------------------------------
+
             if kitchen_move_target is not None:
                 marker = (
                     round(kitchen_move_target[0]),
                     round(kitchen_move_target[1])
                 )
-                pygame.draw.circle(frame, GOLD, marker, 12, 2)
-                pygame.draw.circle(frame, GOLD, marker, 3)
 
-            # Compact inventory count for this pickup prototype.
-            inventory_panel = pygame.Rect(14, 14, 156, 30)
-            pygame.draw.rect(frame, (15, 20, 34), inventory_panel, border_radius=5)
-            pygame.draw.rect(frame, PANEL_OUTER_BORDER, inventory_panel, 1, border_radius=5)
-            inventory_text = small_font.render(
-                f"Предметов: {len(kitchen_inventory)}", True, TEXT_COLOR
+                pygame.draw.circle(
+                    frame,
+                    GOLD,
+                    marker,
+                    12,
+                    2
+                )
+
+                pygame.draw.circle(
+                    frame,
+                    GOLD,
+                    marker,
+                    3
+                )
+
+            # ------------------------------------------------
+            # HUD текущего запроса
+            # ------------------------------------------------
+
+            hud_rect = pygame.Rect(14, 14, 365, 42)
+
+            pygame.draw.rect(
+                frame,
+                (15, 20, 34),
+                hud_rect,
+                border_radius=5
             )
-            frame.blit(inventory_text, (inventory_panel.x + 9, inventory_panel.y + 6))
 
-            # Hover outline and compact item description.
+            pygame.draw.rect(
+                frame,
+                PANEL_OUTER_BORDER,
+                hud_rect,
+                width=1,
+                border_radius=5
+            )
+
+            if kitchen_requested_item_id is not None:
+                requested_text = (
+                    "Динара просит: "
+                    + KITCHEN_REQUEST_TEXT[kitchen_requested_item_id]
+                )
+            elif len(kitchen_delivered_requested_items) == len(
+                KITCHEN_REQUESTABLE_ITEMS
+            ):
+                requested_text = "Все ингредиенты доставлены!"
+            else:
+                requested_text = "Динара пока ничего не просит."
+
+            requested_surface = small_font.render(
+                requested_text,
+                True,
+                GOLD
+            )
+
+            frame.blit(
+                requested_surface,
+                (
+                    hud_rect.x + 11,
+                    hud_rect.centery - requested_surface.get_height() // 2
+                )
+            )
+
+            # ------------------------------------------------
+            # Подсказка по управлению
+            # ------------------------------------------------
+
+            if kitchen_carried_item is not None:
+                controls_text = (
+                    "ЛКМ по Динаре — подойти и передать предмет"
+                )
+            else:
+                controls_text = (
+                    "ЛКМ по предмету — подойти и подобрать"
+                )
+
+            controls_surface = tooltip_font.render(
+                controls_text,
+                True,
+                MUTED_COLOR
+            )
+
+            controls_panel = controls_surface.get_rect(
+                midbottom=(WIDTH // 2, HEIGHT - 10)
+            ).inflate(18, 10)
+
+            pygame.draw.rect(
+                frame,
+                (15, 20, 34),
+                controls_panel,
+                border_radius=4
+            )
+
+            pygame.draw.rect(
+                frame,
+                PANEL_INNER_BORDER,
+                controls_panel,
+                width=1,
+                border_radius=4
+            )
+
+            frame.blit(
+                controls_surface,
+                controls_surface.get_rect(
+                    center=controls_panel.center
+                )
+            )
+
+            # ------------------------------------------------
+            # Подсказка предмета при наведении
+            # ------------------------------------------------
+
             if hovered_item is not None:
+
                 highlight = hovered_item["rect"].inflate(10, 10)
-                pygame.draw.rect(frame, GOLD, highlight, 2, border_radius=5)
+
+                pygame.draw.rect(
+                    frame,
+                    GOLD,
+                    highlight,
+                    2,
+                    border_radius=5
+                )
 
                 tooltip_width = 238
-                tooltip_height = 78
+                tooltip_height = 83
+
                 tooltip_x = clamp(
-                    mouse_pos[0] + 15, 8, WIDTH - tooltip_width - 8
+                    mouse_pos[0] + 15,
+                    8,
+                    WIDTH - tooltip_width - 8
                 )
+
                 tooltip_y = clamp(
-                    mouse_pos[1] + 15, 8, HEIGHT - tooltip_height - 8
+                    mouse_pos[1] + 15,
+                    8,
+                    HEIGHT - tooltip_height - 8
                 )
+
                 tooltip_rect = pygame.Rect(
-                    tooltip_x, tooltip_y, tooltip_width, tooltip_height
+                    tooltip_x,
+                    tooltip_y,
+                    tooltip_width,
+                    tooltip_height
                 )
-                pygame.draw.rect(frame, (15, 20, 34), tooltip_rect, border_radius=5)
-                pygame.draw.rect(frame, PANEL_OUTER_BORDER, tooltip_rect, 1, border_radius=5)
+
+                pygame.draw.rect(
+                    frame,
+                    (15, 20, 34),
+                    tooltip_rect,
+                    border_radius=5
+                )
+
+                pygame.draw.rect(
+                    frame,
+                    PANEL_OUTER_BORDER,
+                    tooltip_rect,
+                    width=1,
+                    border_radius=5
+                )
 
                 title_surface = small_font.render(
-                    hovered_item["name"], True, GOLD
+                    hovered_item["name"],
+                    True,
+                    GOLD
                 )
-                frame.blit(title_surface, (tooltip_x + 9, tooltip_y + 6))
+
+                frame.blit(
+                    title_surface,
+                    (tooltip_x + 9, tooltip_y + 6)
+                )
 
                 description_lines = wrap_text(
                     tooltip_font,
@@ -2198,65 +2843,102 @@ def main():
                 )[:2]
 
                 description_y = tooltip_y + 29
+
                 for description_line in description_lines:
                     description_surface = tooltip_font.render(
-                        description_line, True, TEXT_COLOR
+                        description_line,
+                        True,
+                        TEXT_COLOR
                     )
+
                     frame.blit(
                         description_surface,
                         (tooltip_x + 9, description_y)
                     )
-                    description_y += description_surface.get_height() + 1
+
+                    description_y += (
+                        description_surface.get_height() + 1
+                    )
+
+                if kitchen_carried_item is not None:
+                    hint_text = "Сначала передай предмет Динаре"
+                else:
+                    hint_text = "ЛКМ — подойти и подобрать"
 
                 hint_surface = tooltip_font.render(
-                    "ЛКМ — подойти и подобрать", True, MUTED_COLOR
+                    hint_text,
+                    True,
+                    MUTED_COLOR
                 )
+
                 frame.blit(
                     hint_surface,
-                    (tooltip_x + 9, tooltip_y + tooltip_height - 18)
+                    (
+                        tooltip_x + 9,
+                        tooltip_y + tooltip_height - 18
+                    )
                 )
 
-            if kitchen_pickup_notice_timer > 0.0 and kitchen_pickup_notice:
+            # ------------------------------------------------
+            # Короткие уведомления
+            # ------------------------------------------------
+
+            if (
+                kitchen_notice_timer > 0.0
+                and kitchen_notice
+                and stage == "kitchen_scene"
+            ):
                 notice_surface = small_font.render(
-                    kitchen_pickup_notice, True, GOLD
+                    kitchen_notice,
+                    True,
+                    GOLD
                 )
+
                 notice_rect = notice_surface.get_rect(
-                    midtop=(WIDTH // 2, 16)
+                    midtop=(WIDTH // 2, 65)
                 )
+
                 notice_panel = notice_rect.inflate(22, 12)
+
                 pygame.draw.rect(
-                    frame, (15, 20, 34), notice_panel, border_radius=5
-                )
-                pygame.draw.rect(
-                    frame, PANEL_OUTER_BORDER, notice_panel, 1, border_radius=5
-                )
-                frame.blit(notice_surface, notice_rect)
-
-        elif stage == "class_confirmed":
-
-            frame.blit(room, (0, 0))
-
-            draw_character(
-                frame,
-                neutral,
-                END_X,
-                END_Y
-            )
-
-            line = current_line()
-
-            if line is not None:
-                draw_dialogue_panel(
                     frame,
-                    speaker_font,
-                    message_font,
-                    line["speaker"],
-                    line["text"],
-                    dialogue_elapsed
+                    (15, 20, 34),
+                    notice_panel,
+                    border_radius=5
                 )
+
+                pygame.draw.rect(
+                    frame,
+                    PANEL_OUTER_BORDER,
+                    notice_panel,
+                    width=1,
+                    border_radius=5
+                )
+
+                frame.blit(
+                    notice_surface,
+                    notice_rect
+                )
+
+            # ------------------------------------------------
+            # Диалоговая панель поверх кухни
+            # ------------------------------------------------
+
+            if stage == "kitchen_dialogue":
+                line = current_kitchen_line()
+
+                if line is not None:
+                    draw_dialogue_panel(
+                        frame,
+                        speaker_font,
+                        message_font,
+                        line["speaker"],
+                        line["text"],
+                        kitchen_dialogue_elapsed
+                    )
 
         # ----------------------------------------------------
-        # Вывод
+        # Вывод кадра
         # ----------------------------------------------------
 
         if stage == "white_shake":
