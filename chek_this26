@@ -47,33 +47,264 @@ KITCHEN_ITEM_INTERACTION_RADIUS = 40.0
 # Точка, в которую игрок подходит для передачи предмета Динаре.
 KITCHEN_DINARA_APPROACH = (680.0, 385.0)
 
-# Доступные запросы Динары. Варенье намеренно отсутствует.
-KITCHEN_REQUESTABLE_ITEMS = (
-    "eggs",
-    "milk",
-    "flour",
-    "butter",
-    "spoon",
+# EVT005_SCENARIO_DATA_V1
+# ============================================================
+# EVT_005 — СЦЕНАРНЫЕ ДАННЫЕ КУХНИ
+# ============================================================
+
+KITCHEN_REQUIRED_INGREDIENTS = (
+    "eggs", "milk", "flour", "salt", "butter", "honey",
 )
 
-# Форма предмета в запросе Динары.
+KITCHEN_REQUIRED_UTENSILS = (
+    "spoon", "fork", "plate", "baking_tray", "rolling_pin",
+    "clay_baking_dish",
+)
+
+KITCHEN_REQUESTABLE_ITEMS = (
+    *KITCHEN_REQUIRED_INGREDIENTS,
+    *KITCHEN_REQUIRED_UTENSILS,
+    "dough",
+)
+
+# Тесто появляется только после того, как Динара уже попросила
+# яйца, молоко, муку, масло и мёд. Соль в это условие не входит.
+KITCHEN_DOUGH_UNLOCK_AFTER = (
+    "eggs", "milk", "flour", "butter", "honey",
+)
+
 KITCHEN_REQUEST_TEXT = {
     "eggs": "яйца",
     "milk": "молоко",
     "flour": "муку",
+    "salt": "соль",
     "butter": "масло",
+    "honey": "мёд",
+    "dough": "тесто",
     "spoon": "ложку",
+    "fork": "вилку",
+    "plate": "тарелку",
+    "baking_tray": "противень",
+    "rolling_pin": "скалку",
+    "clay_baking_dish": "глиняную форму для выпекания",
 }
 
-# Форма предмета в реплике об ошибочной доставке.
 KITCHEN_ITEM_DISPLAY_TEXT = {
     "eggs": "яйца",
     "milk": "молоко",
     "flour": "муку",
+    "salt": "соль",
     "butter": "масло",
+    "honey": "мёд",
+    "dough": "тесто",
     "spoon": "ложку",
+    "fork": "вилку",
+    "plate": "тарелку",
+    "baking_tray": "противень",
+    "rolling_pin": "скалку",
+    "clay_baking_dish": "глиняную форму для выпекания",
+    "dragon_head": "голову дракона",
+    "dragon_skull": "череп дракона",
+    "beer_barrel": "бочку пива",
+    "mead_barrel": "бочку медовухи",
+    "beer_mug": "кружку пива",
+    "mead_mug": "кружку медовухи",
+    "yeast_sack": "мешок дрожжей",
+    "ladle": "половник",
+    "empty_jar": "пустую банку",
     "jam": "банку варенья",
+    "berries": "ягоды",
+    "nuts": "орехи",
+    "cinnamon": "корицу",
+    "apples": "яблоки",
+    "dried_fruit": "сухофрукты",
+    "spice_mortar": "ступку для перемолки специй",
 }
+
+KITCHEN_NEEDED_FORM = {
+    "eggs": "нужны яйца",
+    "milk": "нужно молоко",
+    "flour": "нужна мука",
+    "salt": "нужна соль",
+    "butter": "нужно масло",
+    "honey": "нужен мёд",
+    "dough": "нужно тесто",
+    "spoon": "нужна ложка",
+    "fork": "нужна вилка",
+    "plate": "нужна тарелка",
+    "baking_tray": "нужен противень",
+    "rolling_pin": "нужна скалка",
+    "clay_baking_dish": "нужна глиняная форма",
+}
+
+KITCHEN_CORRECT_REACTIONS = {
+    "eggs": "В этом году куры несутся особенно хорошо",
+    "flour": "Лучшая мука! Специально отправлялась за ней в город!",
+    "milk": "Хорошо, что соседи держат коров..",
+    "butter": "А вот и масло. Я сама его делаю, попробуй его с краюхой хлеба!",
+    "salt": "Немного соли не помешает",
+    "honey": "Ох и покусали тогда меня пчёлы..",
+    "dough": "Какое замечательное тесто у нас получилось, ты молодец!",
+    "spoon": "Ага, спасибо",
+    "fork": "Сделаем не большие дырочки в тесте",
+    "plate": "Держи, твой кусок сладкого рулета. Ты заслужил!",
+    "baking_tray": "Теперь поставим формочку на противень и в печь!",
+    "rolling_pin": "Раскатаем тесто!",
+    "clay_baking_dish": "Отлично, сюда и поставим наше тесто",
+}
+
+KITCHEN_UTENSIL_REACTIONS = {
+    "spoon": {
+        "first": ["Не совсем то, что мне нужно, но тоже пойдёт"],
+        "repeat_1": ["Пу-пу-пу..."],
+        "repeat_2": ["..."],
+    },
+    "fork": {
+        "first": ["Ну.. это явно не {requested}"],
+        "repeat_1": ["Ты это специально, да?"],
+        "repeat_2": ["Выбирай. Вилкой в глаз или..."],
+    },
+    "plate": {
+        "first": ["Я попросила {requested}. Попробуй поискать внимательней."],
+        "repeat_1": [
+            "После того, как приготовим сладкий рулет, я не поленюсь тебя научить названиям предметов..."
+        ],
+        "repeat_2": ["Ты точно решил мне помешать, да?"],
+    },
+    "baking_tray": {
+        "first": [
+            "Ох.. Ты видимо глупенький.. Ничего, я сама найду. Просто постой рядом"
+        ],
+        "repeat_1": ["Давай сходим к знахарке? Кажется тебе нужно проверить слух..."],
+        "repeat_2": ["Я тебя им огрею сейчас."],
+    },
+    "rolling_pin": {
+        "first": ["Не совсем конечно {requested} но ладно."],
+        "repeat_1": ["Ну.. Ты особенный, верно?"],
+        "repeat_2": ["Оу.. Тебя этой штукой часто по голове били?"],
+    },
+    "clay_baking_dish": {
+        "first": ["Чуть позже мне это пригодится."],
+        "repeat_1": ["Не-а. Вообще не то."],
+        "repeat_2": ["..."],
+    },
+}
+
+KITCHEN_EXTRA_ITEM_REACTIONS = {
+    "dragon_skull": {
+        "first": [
+            "Положи его туда, где ты его взял.",
+            "Я же сказала мне {needed}.",
+        ],
+        "repeat_1": [
+            "Тебе он видимо очень понравился?",
+            "Если будешь мне мешать, твой череп будет лежать рядом с ним.",
+        ],
+        "repeat_2": ["Ну всё.."],
+    },
+    "dragon_head": {
+        "first": [
+            "Да.. дела.. Ты знаешь, я сама добыла эту голову...",
+            "Даже не спрашивай.",
+            "Лучше верни её на место и принеси мне {requested}.",
+        ],
+        "repeat_1": None,
+        "repeat_2": None,
+    },
+    "yeast_sack": {
+        "first": ["Мне дрожжи не понадобятся. Положи их на место."],
+        "repeat_1": [
+            "Ты опять принёс дрожжи. Я же сказала, в Сладкий рулет они не идут."
+        ],
+        "repeat_2": [
+            "Смотри, дрожжи, это грибы. Если ты их мне ещё раз принесёшь, то они прорастут в тебе!!"
+        ],
+    },
+    "ladle": {
+        "first": ["Это не похоже на то, о чём я тебя просила..."],
+        "repeat_1": ["На {requested} это всё ещё не похоже..."],
+        "repeat_2": ["Сейчас я им буду тебя бить"],
+    },
+    "empty_jar": {
+        "first": None,
+        "repeat_1": ["Ты хочешь сделать аквариум?"],
+        "repeat_2": ["Смотри, Рыбка в банке *достаёт банку с головой гг*"],
+    },
+    "spice_mortar": {
+        "first": ["нет. Мне это не нужно, поставь туда, где взял."],
+        "repeat_1": None,
+        "repeat_2": None,
+    },
+    "beer_barrel": {
+        "first": [
+            "Знаешь, ты прав.",
+            "Достань с полки кружки, я разолью нам пива.",
+        ],
+        "repeat_1": ["Хорошо"],
+        "repeat_2": ["Спасибо"],
+    },
+    "mead_barrel": {
+        "first": [
+            "Я всегда говорила, что ничего вкусней медовухи нет.",
+            "Мы обязательно выпьем с тобой, но только после готовки.",
+        ],
+        "repeat_1": None,
+        "repeat_2": None,
+    },
+    "beer_mug": {
+        "first": [
+            "Мой отец говорил, что пиво это жидкий хлеб, а от хлеба вреда нет."
+        ],
+        "repeat_1": None,
+        "repeat_2": None,
+    },
+    "mead_mug": {
+        "first": ["Какое вкусное!"],
+        "repeat_1": None,
+        "repeat_2": None,
+    },
+    "jam": {
+        "first": ["Хочешь добавить варенья?", "Почему бы и нет!"],
+        "repeat_1": None,
+        "repeat_2": None,
+    },
+    "berries": {
+        "first": [
+            "Если хочешь, они могут пойти на украшение рулета.",
+            "Мне кажется, из тебя вышел не плохой повар!",
+        ],
+        "repeat_1": None,
+        "repeat_2": None,
+    },
+    "nuts": {
+        "first": ["Не совсем то, что мне нужно, но пойдёт на украшение"],
+        "repeat_1": None,
+        "repeat_2": None,
+    },
+    "cinnamon": {
+        "first": ["Не совсем то, что мне нужно, но пойдёт"],
+        "repeat_1": None,
+        "repeat_2": None,
+    },
+    "apples": {
+        "first": ["Сладкий рулет с яблоками?", "Давай, это будет интересно"],
+        "repeat_1": None,
+        "repeat_2": None,
+    },
+    "dried_fruit": {
+        "first": [
+            "Честно говоря, я не очень люблю сухофрукты, но если ты настаиваешь, добавим"
+        ],
+        "repeat_1": None,
+        "repeat_2": None,
+    },
+}
+
+KITCHEN_UNIVERSAL_REMINDER = (
+    "Давай ещё раз, для приготовления сладкого рулета мне понадобятся: "
+    "Яйца, молоко, мука, соль, масло, мёд.",
+    "Где ты в этом списке услышал {item}",
+)
 
 # id, name, description, sheet, column, row, screen position.
 # Sheet 1: 4 columns x 6 rows. Sheet 2: 4 columns x 5 rows.
@@ -628,7 +859,7 @@ def load_kitchen_item_sprites():
     return result
 
 
-def build_kitchen_items(sprites):
+def build_kitchen_items(sprites, include_dough=False):
     items = []
 
     for (
@@ -640,8 +871,12 @@ def build_kitchen_items(sprites):
         row,
         position
     ) in KITCHEN_ITEM_LAYOUT:
+        if item_id == "dough" and not include_dough:
+            continue
 
-        image = sprites[item_id]
+        image = sprites.get(item_id)
+        if image is None:
+            continue
 
         items.append({
             "id": item_id,
@@ -1090,6 +1325,7 @@ def main():
     kitchen_carried_item = None
 
     kitchen_requested_item_id = None
+    kitchen_requested_items = set()
     kitchen_delivered_requested_items = set()
     kitchen_delivery_counts = {}
 
@@ -1204,6 +1440,88 @@ def main():
     # Сценарий кухни: запросы и реакции Динары
     # --------------------------------------------------------
 
+    def make_kitchen_dialogue_lines(texts, emotion="base"):
+        return [
+            {
+                "speaker": "Динара",
+                "text": text,
+                "emotion": emotion,
+            }
+            for text in texts
+        ]
+
+    def add_kitchen_dough_if_unlocked():
+        required_requests_done = set(KITCHEN_DOUGH_UNLOCK_AFTER).issubset(
+            kitchen_requested_items
+        )
+        if not required_requests_done:
+            return
+
+        if "dough" in kitchen_delivered_requested_items:
+            return
+
+        if (
+            kitchen_carried_item is not None
+            and kitchen_carried_item.get("id") == "dough"
+        ):
+            return
+
+        if any(item["id"] == "dough" for item in kitchen_items):
+            return
+
+        # Не создаём тесто, пока для него не добавлены реальные
+        # координаты в KITCHEN_ITEM_LAYOUT и спрайт в набор ресурсов.
+        dough_items = build_kitchen_items(
+            kitchen_item_sprites,
+            include_dough=True
+        )
+        dough_item = next(
+            (item for item in dough_items if item["id"] == "dough"),
+            None
+        )
+        if dough_item is not None:
+            kitchen_items.append(dough_item)
+            print("[EVT005] Тесто появилось на кухне.")
+
+    def get_kitchen_wrong_reaction(
+        item_id,
+        wrong_count,
+        requested_item_id
+    ):
+        item_name = KITCHEN_ITEM_DISPLAY_TEXT.get(item_id, item_id)
+        requested_name = KITCHEN_REQUEST_TEXT.get(
+            requested_item_id,
+            "нужный предмет"
+        )
+        needed_form = KITCHEN_NEEDED_FORM.get(
+            requested_item_id,
+            f"нужен {requested_name}"
+        )
+
+        if wrong_count == 1:
+            reaction_stage = "first"
+        elif wrong_count == 2:
+            reaction_stage = "repeat_1"
+        else:
+            reaction_stage = "repeat_2"
+
+        reaction_data = KITCHEN_UTENSIL_REACTIONS.get(item_id)
+        if reaction_data is None:
+            reaction_data = KITCHEN_EXTRA_ITEM_REACTIONS.get(item_id)
+
+        templates = reaction_data.get(reaction_stage) if reaction_data else None
+        if not templates:
+            templates = KITCHEN_UNIVERSAL_REMINDER
+
+        return [
+            line.format(
+                requested=requested_name,
+                item=item_name,
+                needed=needed_form,
+            )
+            for line in templates
+        ]
+
     def begin_kitchen_intro_dialogue():
         start_kitchen_dialogue(
             [
@@ -1218,38 +1536,61 @@ def main():
 
     def begin_kitchen_next_request_dialogue():
         nonlocal kitchen_requested_item_id
+        nonlocal stage
+
+        add_kitchen_dough_if_unlocked()
+
+        available_item_ids = {
+            item["id"]
+            for item in kitchen_items
+        }
 
         remaining_items = [
             item_id
             for item_id in KITCHEN_REQUESTABLE_ITEMS
-            if item_id not in kitchen_delivered_requested_items
+            if (
+                item_id in available_item_ids
+                and item_id not in kitchen_requested_items
+            )
         ]
 
         if not remaining_items:
             kitchen_requested_item_id = None
+            stage = "kitchen_scene"
 
-            start_kitchen_dialogue(
-                [
-                    {
-                        "speaker": "Динара",
-                        "text": "Вот теперь всё! Спасибо за помощь.",
-                        "emotion": "Очень довольна",
-                    }
-                ],
-                "scene"
-            )
+            missing_items = [
+                item_id
+                for item_id in KITCHEN_REQUESTABLE_ITEMS
+                if (
+                    item_id not in available_item_ids
+                    and item_id not in kitchen_requested_items
+                    and item_id not in kitchen_delivered_requested_items
+                )
+            ]
+            if missing_items:
+                print(
+                    "[EVT005][ASSETS] Запросы приостановлены: на сцене "
+                    "пока нет спрайтов следующих предметов: "
+                    + ", ".join(missing_items)
+                )
+            else:
+                print(
+                    "[EVT005] Все доступные для текущей раскладки "
+                    "предметы уже запрошены. Автоматическое завершение "
+                    "готовки не запускается."
+                )
             return
 
         kitchen_requested_item_id = random.choice(remaining_items)
-        requested_name = KITCHEN_REQUEST_TEXT[
-            kitchen_requested_item_id
-        ]
+        kitchen_requested_items.add(kitchen_requested_item_id)
+        add_kitchen_dough_if_unlocked()
 
+        requested_name = KITCHEN_REQUEST_TEXT[kitchen_requested_item_id]
         start_kitchen_dialogue(
             [
                 {
                     "speaker": "Динара",
-                    "text": f"Для начала принеси мне {requested_name}.",
+                    "text": f"Для начала мне понадобится.. {requested_name}",
                     "emotion": "вопрос",
                 }
             ],
@@ -1266,81 +1607,49 @@ def main():
         nonlocal kitchen_target_item_id
 
         delivered_item = kitchen_carried_item
-
         if delivered_item is None:
             return
 
         item_id = delivered_item["id"]
-        item_name = KITCHEN_ITEM_DISPLAY_TEXT.get(
-            item_id,
-            delivered_item["name"].lower()
-        )
 
         kitchen_carried_item = None
         kitchen_move_target = None
         kitchen_target_action = None
         kitchen_target_item_id = None
-
         kitchen_notice = ""
         kitchen_notice_timer = 0.0
 
         if item_id == kitchen_requested_item_id:
+            reaction = KITCHEN_CORRECT_REACTIONS.get(item_id)
+            if reaction is None:
+                kitchen_items.append(delivered_item)
+                print(
+                    "[EVT005][DIALOGUE] Нет сценарной реакции для "
+                    f"правильного предмета: {item_id}"
+                )
+                return
+
             kitchen_delivered_requested_items.add(item_id)
             kitchen_requested_item_id = None
-
             start_kitchen_dialogue(
-                [
-                    {
-                        "speaker": "Динара",
-                        "text": "Отлично! Это именно то, что нужно. Спасибо!",
-                        "emotion": "Очень довольна",
-                    }
-                ],
+                make_kitchen_dialogue_lines([reaction], "base"),
                 "next_request"
             )
             return
 
-        # Неверный предмет возвращается в исходный список.
-        # Используется тот же объект: его позиция и rect сохраняются.
+        # Неправильный предмет возвращается на сцену.
         kitchen_items.append(delivered_item)
 
         wrong_count = kitchen_delivery_counts.get(item_id, 0) + 1
         kitchen_delivery_counts[item_id] = wrong_count
 
-        requested_name = KITCHEN_REQUEST_TEXT.get(
-            kitchen_requested_item_id,
-            "нужный предмет"
+        reaction_lines = get_kitchen_wrong_reaction(
+            item_id,
+            wrong_count,
+            kitchen_requested_item_id
         )
-
-        if wrong_count == 1:
-            reaction = (
-                f"Спасибо, но сейчас я просила {requested_name}, "
-                f"а не {item_name}."
-            )
-            emotion = "недовольна"
-
-        elif wrong_count == 2:
-            reaction = (
-                f"Это опять {item_name}. "
-                f"Мне всё ещё нужна {requested_name}."
-            )
-            emotion = "недовольна"
-
-        else:
-            reaction = (
-                f"Опять {item_name}! "
-                f"Пожалуйста, принеси уже {requested_name}."
-            )
-            emotion = "недовольна"
-
         start_kitchen_dialogue(
-            [
-                {
-                    "speaker": "Динара",
-                    "text": reaction,
-                    "emotion": emotion,
-                }
-            ],
+            make_kitchen_dialogue_lines(reaction_lines, "недовольна"),
             "scene"
         )
 
@@ -1570,6 +1879,7 @@ def main():
 
         kitchen_carried_item = None
         kitchen_requested_item_id = None
+        kitchen_requested_items.clear()
 
         kitchen_delivered_requested_items.clear()
         kitchen_delivery_counts.clear()
@@ -1800,6 +2110,7 @@ def main():
 
         kitchen_carried_item = None
         kitchen_requested_item_id = None
+        kitchen_requested_items.clear()
 
         kitchen_delivered_requested_items.clear()
         kitchen_delivery_counts.clear()
@@ -2706,12 +3017,8 @@ def main():
                     "Динара просит: "
                     + KITCHEN_REQUEST_TEXT[kitchen_requested_item_id]
                 )
-            elif len(kitchen_delivered_requested_items) == len(
-                KITCHEN_REQUESTABLE_ITEMS
-            ):
-                requested_text = "Все ингредиенты доставлены!"
             else:
-                requested_text = "Динара пока ничего не просит."
+                requested_text = "Ожидаются остальные предметы кухни."
 
             requested_surface = small_font.render(
                 requested_text,
