@@ -22,6 +22,12 @@ CHIBI_PATH = SWEETY_DIR / "chibi.png"
 KITCHEN_ITEMS_PATH_1 = ASSET_ROOT / "items" / "Kitchen Props Sheet.png"
 KITCHEN_ITEMS_PATH_2 = ASSET_ROOT / "items" / "Kitchen Props Sheet 2.png"
 CHAR_DIR = ASSET_ROOT / "Char"
+GOBLIN_PATH = CHAR_DIR / "Goblin Base.png"
+
+# Проверенные границы Goblin Base.png.
+GOBLIN_SOURCE_SIZE = (2352, 3520)
+GOBLIN_CROP_RECT = (33, 507, 2079, 2725)
+GOBLIN_DISPLAY_MAX_SIZE = (150, 198)
 FONT_PATH = ASSET_ROOT / "shtxt" / "arcade.ttf"
 
 WIDTH = 960
@@ -944,6 +950,39 @@ def load_class_images():
 
     return result
 
+def load_goblin_base():
+    """Загрузить и обрезать базовое изображение гоблина."""
+    if not GOBLIN_PATH.is_file():
+        raise FileNotFoundError(
+            f"Не найден спрайт гоблина: {GOBLIN_PATH}"
+        )
+
+    source = load_image(GOBLIN_PATH)
+
+    if source.get_size() != GOBLIN_SOURCE_SIZE:
+        raise ValueError(
+            "Неожиданный размер Goblin Base.png: "
+            f"{source.get_size()}, ожидался {GOBLIN_SOURCE_SIZE}."
+        )
+
+    crop_rect = pygame.Rect(GOBLIN_CROP_RECT)
+
+    if not source.get_rect().contains(crop_rect):
+        raise ValueError(
+            "Область обрезки гоблина выходит за границы изображения."
+        )
+
+    character = source.subsurface(crop_rect).copy()
+    visible_bounds = character.get_bounding_rect()
+
+    if visible_bounds.width <= 0 or visible_bounds.height <= 0:
+        raise ValueError(
+            "В области Goblin Base.png не найден персонаж."
+        )
+
+    character = character.subsurface(visible_bounds).copy()
+
+    return fit_image(character, *GOBLIN_DISPLAY_MAX_SIZE)
 
 # ============================================================
 # ПЕРСОНАЖ
@@ -1253,6 +1292,7 @@ def main():
         KITCHEN_ITEMS_PATH_1,
         KITCHEN_ITEMS_PATH_2,
         FONT_PATH,
+        GOBLIN_PATH,
     ):
         if not path.is_file():
             raise FileNotFoundError(f"Не найден ресурс: {path}")
@@ -1262,6 +1302,7 @@ def main():
     kitchen_item_sprites = load_kitchen_item_sprites()
     emotions = load_dinara()
     class_images = load_class_images()
+    goblin_base_image = load_goblin_base()
 
     neutral = emotions["base"]
     silhouette = make_silhouette(neutral)
@@ -1308,6 +1349,30 @@ def main():
     greeting_index = 0
     selected_class = 0
     selected_class_data = None
+        # EVT005_BATTLE_FOUNDATION_V1
+    # Два независимых противника используют общий спрайт.
+    goblin_combatants = [
+        {
+            "id": "goblin_1",
+            "image": goblin_base_image,
+            "alive": True,
+            "state": "waiting",
+            "position": None,
+            "animation_elapsed": 0.0,
+        },
+        {
+            "id": "goblin_2",
+            "image": goblin_base_image,
+            "alive": True,
+            "state": "waiting",
+            "position": None,
+            "animation_elapsed": 0.0,
+        },
+    ]
+    battle_phase = "not_started"
+    battle_turn_owner = None
+    battle_round = 0
+    battle_selected_target = None
 
     current_emotion = "base"
 
