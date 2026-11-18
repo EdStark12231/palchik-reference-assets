@@ -1590,14 +1590,18 @@ class EVT005BattleEngine:
             return False
         actor = self.actors[actor_id]
         cost = self.balance["basic_attack_stamina"]
-        if actor["stamina"] < cost:
+        exhausted_attack = actor["stamina"] < cost
+        if exhausted_attack:
             # При нехватке ресурса базовая атака остаётся доступной,
-            # наносит минимальный урон и не сжигает остаток Stamina.
+            # наносит ровно 1 урон и не сжигает остаток Stamina.
+            # Удар истощения не может стать критическим.
             damage = 1
         else:
             actor["stamina"] -= cost
             damage = self._physical_attack_value(actor_id, skill_key="Базовая атака мечом")
-        result = self._damage(actor_id, target_id, damage)
+        result = self._damage(
+            actor_id, target_id, damage, can_crit=not exhausted_attack
+        )
         self.last_action_event = {
             "kind": "attack", "attacker": actor_id, "target": target_id,
             "damage": result["damage"], "critical": result["critical"],
@@ -1850,6 +1854,15 @@ class EVT005BattleEngine:
         }
 
 
+def _evt005_hit_test_enemy(mouse_pos, enemy_hitboxes):
+    """Return the living enemy under the cursor using shared screen hitboxes."""
+    mouse_x, mouse_y = mouse_pos
+    for enemy_id, (left, top, right, bottom) in enemy_hitboxes:
+        if left <= mouse_x < right and top <= mouse_y < bottom:
+            return enemy_id
+    return None
+
+
 def _evt005_battle_self_test():
     """Быстрый тест логики движка без запуска Pygame и загрузки ресурсов."""
     engine = EVT005BattleEngine("Тестовый воин")
@@ -1892,9 +1905,12 @@ def _evt005_battle_self_test():
     engine.actors["player"]["stamina"] = 0
     for other_id in ("dinara", "goblin_1", "goblin_2"):
         engine.actors[other_id]["ready_at"] = engine.clock
+    engine.actors["goblin_1"]["agility"] = 0
     target_before = engine.actors["goblin_1"]["hp"]
-    engine.player_attack("goblin_1")
+    assert engine.player_attack("goblin_1")
     assert engine.actors["goblin_1"]["hp"] == target_before - 1
+    assert engine.last_action_event["damage"] == 1
+    assert not engine.last_action_event["critical"]
     assert engine.actors["player"]["stamina"] == 0
 
     # При частичном запасе ниже цены атаки остаток не сгорает:
@@ -1904,10 +1920,22 @@ def _evt005_battle_self_test():
     engine.actors["player"]["stamina"] = 5
     for other_id in ("dinara", "goblin_1", "goblin_2"):
         engine.actors[other_id]["ready_at"] = engine.clock
+    engine.actors["goblin_1"]["agility"] = 0
     target_before = engine.actors["goblin_1"]["hp"]
-    engine.player_attack("goblin_1")
+    assert engine.player_attack("goblin_1")
     assert engine.actors["goblin_1"]["hp"] == target_before - 1
+    assert engine.last_action_event["damage"] == 1
+    assert not engine.last_action_event["critical"]
     assert engine.actors["player"]["stamina"] == 5
+
+    # Hover and left-click target selection share the same sprite hitboxes.
+    enemy_hitboxes = [
+        ("goblin_1", (610, 190, 765, 405)),
+        ("goblin_2", (775, 190, 930, 405)),
+    ]
+    assert _evt005_hit_test_enemy((690, 300), enemy_hitboxes) == "goblin_1"
+    assert _evt005_hit_test_enemy((850, 300), enemy_hitboxes) == "goblin_2"
+    assert _evt005_hit_test_enemy((770, 300), enemy_hitboxes) is None
 
     # Берсерк недоступен выше 25% HP и открывает дополнительный ход ниже порога.
     engine = EVT005BattleEngine("Тестовый воин")
@@ -2049,6 +2077,7 @@ def main():
     battle_turn_owner = None
     battle_round = 0
     battle_selected_target = None
+    battle_selected_target_timer = 0.0
     battle_engine = None
     battle_ai_elapsed = 0.0
     battle_message = ""
@@ -2061,6 +2090,9 @@ def main():
     battle_story_goblins_visible = False
     battle_story_bodies_visible = False
     battle_triggered = False
+    # F2 test shortcut: temporary identity and class are restored after victory.
+    fast_travel_active = False
+    fast_travel_restore_state = None
 
     # Диалоги и выборы перед первым сюжетным сражением.
     story_nodes = []
@@ -2406,6 +2438,7 @@ def main():
         nonlocal battle_engine, battle_phase, battle_ai_elapsed
         nonlocal battle_message, battle_message_timer, battle_ui_mode
         nonlocal battle_round, battle_turn_owner, battle_selected_target
+        nonlocal battle_selected_target_timer
         nonlocal stage, battle_story_goblins_visible
         if not selected_class_data or selected_class_data.get("name") != "ВОИН":
             battle_message = "Первая тестовая боевая сборка пока поддерживает только класс ВОИН. Перезапустите событие и выберите ВОИН."
@@ -2424,6 +2457,7 @@ def main():
         battle_round = 1
         battle_turn_owner = battle_engine.current_actor_id
         battle_selected_target = None
+        battle_selected_target_timer = 0.0
         battle_ai_elapsed = 0.0
         battle_message = "Бой начался!"
         battle_message_timer = 2.0
@@ -2431,6 +2465,49 @@ def main():
         battle_story_goblins_visible = True
         stage = "battle"
         print("[EVT005][BATTLE] First goblin encounter started.")
+
+    def fast_travel_to_battle():
+        """F2-only shortcut: skip story setup and start the first battle as the Warrior."""
+        nonlocal player_name, selected_class, selected_class_data
+        nonlocal fast_travel_active, fast_travel_restore_state
+        nonlocal story_nodes, story_index, story_elapsed, story_next_action
+        nonlocal story_choice_index, story_emotion
+        nonlocal battle_story_goblins_visible, battle_story_bodies_visible
+
+        # Never restart an active battle or bypass the scripted defeat choice.
+        if stage in ("battle", "defeat_choices"):
+            return False
+
+        if not fast_travel_active:
+            fast_travel_restore_state = (
+                player_name, selected_class, selected_class_data
+            )
+
+        warrior_index = next(
+            index for index, class_data in enumerate(CLASSES)
+            if class_data["name"] == "ВОИН"
+        )
+        player_name = "тапок"
+        selected_class = warrior_index
+        selected_class_data = CLASSES[warrior_index]
+
+        # Clear any unfinished dialogue/choice so the battle opens cleanly.
+        pygame.key.stop_text_input()
+        story_nodes = []
+        story_index = 0
+        story_elapsed = 0.0
+        story_next_action = None
+        story_choice_index = 0
+        story_emotion = "base"
+        battle_story_bodies_visible = False
+        battle_story_goblins_visible = True
+        fast_travel_active = True
+
+        start_battle()
+        if stage == "battle":
+            print('[EVT005][DEBUG] F2 fast travel: battle started with player name "тапок".')
+            return True
+        return False
 
     GOBLIN_ATTACK_LINES = [
         "Агрх!!",
@@ -2453,6 +2530,9 @@ def main():
     def finish_battle(result):
         nonlocal stage, battle_phase, battle_message, battle_selected_command
         nonlocal battle_story_bodies_visible, battle_story_goblins_visible
+        nonlocal battle_selected_target, battle_selected_target_timer
+        battle_selected_target = None
+        battle_selected_target_timer = 0.0
         if result == "victory":
             battle_phase = "victory"
             battle_story_bodies_visible = True
@@ -2703,6 +2783,8 @@ def main():
         nonlocal stage, battle_story_bodies_visible, battle_phase
         nonlocal kitchen_requested_item_id, kitchen_move_target
         nonlocal kitchen_target_action, kitchen_target_item_id
+        nonlocal player_name, selected_class, selected_class_data
+        nonlocal fast_travel_active, fast_travel_restore_state
         if battle_engine is not None:
             for actor_id in ("player", "dinara"):
                 actor = battle_engine.actors[actor_id]
@@ -2718,6 +2800,10 @@ def main():
         kitchen_move_target = None
         kitchen_target_action = None
         kitchen_target_item_id = None
+        if fast_travel_active and fast_travel_restore_state is not None:
+            (player_name, selected_class, selected_class_data) = fast_travel_restore_state
+            fast_travel_restore_state = None
+            fast_travel_active = False
         stage = "kitchen_scene"
         print("[EVT005] Battle won; returned to free kitchen movement.")
 
@@ -2756,7 +2842,8 @@ def main():
         # Союзники слева, противники справа; HP отображается сердцами.
         def hearts(actor_id, center, label):
             combatant = battle_engine.actors[actor_id]
-            rect = pygame.Rect(center[0] - 82, center[1] - 16, 164, 42)
+            # Compact HP cards sit in the clear strip above the combat sprites.
+            rect = pygame.Rect(center[0] - 74, center[1] - 16, 148, 42)
             pygame.draw.rect(surface, (12, 16, 29), rect, border_radius=4)
             pygame.draw.rect(surface, PANEL_INNER_BORDER, rect, 1, border_radius=4)
             label_s = tooltip_font.render(label, True, GOLD if combatant["alive"] else MUTED_COLOR)
@@ -2783,10 +2870,12 @@ def main():
                 status_s = tooltip_font.render(", ".join(status_text), True, (245, 190, 110))
                 surface.blit(status_s, (rect.x + 7, rect.bottom + 2))
 
-        hearts("player", (120, 112), "ВОИН")
-        hearts("dinara", (120, 185), "ДИНАРА")
-        hearts("goblin_1", (840, 112), "ГОБЛИН 1")
-        hearts("goblin_2", (840, 185), "ГОБЛИН 2")
+        # Four compact cards are aligned above their corresponding actors.
+        # This keeps HP labels clear of the character sprites.
+        hearts("player", (185, 94), "ВОИН")
+        hearts("dinara", (375, 94), "ДИНАРА")
+        hearts("goblin_1", (660, 94), "ГОБЛИН 1")
+        hearts("goblin_2", (840, 94), "ГОБЛИН 2")
 
         if battle_message_timer > 0.0 and battle_message:
             msg = small_font.render(battle_message, True, GOLD)
@@ -2830,6 +2919,7 @@ def main():
 
     def handle_battle_command(command_index):
         nonlocal battle_ui_mode, battle_selected_command, battle_message, battle_message_timer
+        nonlocal battle_selected_target, battle_selected_target_timer
         if battle_engine is None or battle_engine.current_actor_id != "player":
             return
         if battle_ui_mode == "commands":
@@ -2877,6 +2967,9 @@ def main():
             enemy_ids = battle_engine.living("enemy")
             if command_index < len(enemy_ids):
                 target_id = enemy_ids[command_index]
+                # Keep the chosen target visibly marked while the hit feedback is shown.
+                battle_selected_target = target_id
+                battle_selected_target_timer = 1.4
                 battle_engine.player_attack(target_id)
                 battle_ui_mode = "commands"
                 battle_selected_command = 0
@@ -3562,10 +3655,12 @@ def main():
         nonlocal kitchen_dialogue_next_action
         nonlocal battle_engine, battle_phase, battle_turn_owner, battle_round
         nonlocal battle_selected_target, battle_ai_elapsed, battle_message
+        nonlocal battle_selected_target_timer
         nonlocal battle_message_timer, battle_ui_mode, battle_selected_command
         nonlocal battle_story_goblins_visible, battle_story_bodies_visible
         nonlocal battle_triggered, story_nodes, story_index, story_elapsed
         nonlocal story_next_action, story_choice_index, story_emotion
+        nonlocal fast_travel_active, fast_travel_restore_state
 
         stage = "narrator_intro_pause"
 
@@ -3624,6 +3719,7 @@ def main():
         battle_turn_owner = None
         battle_round = 0
         battle_selected_target = None
+        battle_selected_target_timer = 0.0
         battle_ai_elapsed = 0.0
         battle_message = ""
         battle_message_timer = 0.0
@@ -3632,6 +3728,8 @@ def main():
         battle_story_goblins_visible = False
         battle_story_bodies_visible = False
         battle_triggered = False
+        fast_travel_active = False
+        fast_travel_restore_state = None
         story_nodes = []
         story_index = 0
         story_elapsed = 0.0
@@ -3665,6 +3763,7 @@ def main():
     print("1–3 / стрелки — выбор приветствия")
     print("Стрелки / 1–4 — выбор класса")
     print("ENTER — подтвердить класс")
+    print("F2 — быстрый переход к первой боевой сцене (тестовое имя: тапок)")
     print("КУХНЯ: WASD / СТРЕЛКИ — перемещение")
     print("КУХНЯ: наведение — описание предмета")
     print("КУХНЯ: ЛКМ по предмету — подойти и подобрать")
@@ -3749,6 +3848,10 @@ def main():
         elif stage == "battle":
             if battle_message_timer > 0.0:
                 battle_message_timer = max(0.0, battle_message_timer - dt)
+            if battle_selected_target_timer > 0.0:
+                battle_selected_target_timer = max(0.0, battle_selected_target_timer - dt)
+                if battle_selected_target_timer <= 0.0:
+                    battle_selected_target = None
             current = battle_engine.current_actor_id if battle_engine else None
             if current in ("dinara", "goblin_1", "goblin_2"):
                 battle_ai_elapsed += dt
@@ -3793,6 +3896,11 @@ def main():
                 running = False
 
             elif event.type == pygame.KEYDOWN:
+
+                if event.key == pygame.K_F2:
+                    # F2 is a test shortcut only; normal story keeps the player's chosen name.
+                    fast_travel_to_battle()
+                    continue
 
                 if event.key == pygame.K_ESCAPE and stage == "character_profile":
                     stage = profile_return_stage
@@ -4065,12 +4173,30 @@ def main():
                                     handle_battle_command(skill_i)
                                     break
                         elif battle_ui_mode == "target":
-                            # Портреты/панели противников справа служат зонами выбора цели.
-                            for target_i, target_id in enumerate(battle_engine.living("enemy")):
-                                rect = pygame.Rect(650, 330 + target_i * 65, 260, 58)
-                                if rect.collidepoint(event.pos):
-                                    handle_battle_command(target_i)
-                                    break
+                            # First try the visible enemy sprite itself. The same hitboxes
+                            # drive both hover highlighting and left-click target selection.
+                            enemy_slots = ((690, 390), (845, 390))
+                            living_enemy_ids = battle_engine.living("enemy")
+                            enemy_hitboxes = []
+                            for enemy_index, enemy_id in enumerate(("goblin_1", "goblin_2")):
+                                if enemy_id not in living_enemy_ids:
+                                    continue
+                                sprite_rect = goblin_base_image.get_rect(midbottom=enemy_slots[enemy_index])
+                                hit_rect = sprite_rect.inflate(10, 10)
+                                enemy_hitboxes.append((
+                                    enemy_id,
+                                    (hit_rect.left, hit_rect.top, hit_rect.right, hit_rect.bottom),
+                                ))
+                            clicked_target_id = _evt005_hit_test_enemy(event.pos, enemy_hitboxes)
+                            if clicked_target_id is not None:
+                                handle_battle_command(living_enemy_ids.index(clicked_target_id))
+                            else:
+                                # Keep the on-screen target rows as an alternative click area.
+                                for target_i, target_id in enumerate(living_enemy_ids):
+                                    rect = pygame.Rect(650, 330 + target_i * 65, 260, 58)
+                                    if rect.collidepoint(event.pos):
+                                        handle_battle_command(target_i)
+                                        break
                             if pygame.Rect(12, HEIGHT - 70, 205, 55).collidepoint(event.pos):
                                 handle_battle_command(2)
                         elif battle_ui_mode == "items":
@@ -4666,16 +4792,70 @@ def main():
                 draw_ground_character(frame, kitchen_class_images[selected_class], 190, 390)
                 draw_ground_character(frame, kitchen_dinara_image, 375, 390)
                 enemy_slots = ((690, 390), (845, 390))
+                # Build hitboxes from the actual on-screen goblin sprites.
+                # Hover preview works whenever the player can act, not only over target-list rows.
+                mouse_pos = pygame.mouse.get_pos()
+                enemy_hitboxes = []
+                for enemy_index, enemy_id in enumerate(("goblin_1", "goblin_2")):
+                    if not battle_engine.actors[enemy_id]["alive"]:
+                        continue
+                    sprite_rect = goblin_base_image.get_rect(midbottom=enemy_slots[enemy_index])
+                    hit_rect = sprite_rect.inflate(10, 10)
+                    enemy_hitboxes.append((
+                        enemy_id,
+                        (hit_rect.left, hit_rect.top, hit_rect.right, hit_rect.bottom),
+                    ))
+                hovered_target_id = (
+                    _evt005_hit_test_enemy(mouse_pos, enemy_hitboxes)
+                    if battle_engine.current_actor_id == "player"
+                    else None
+                )
+
                 for enemy_index, enemy_id in enumerate(("goblin_1", "goblin_2")):
                     enemy = battle_engine.actors[enemy_id]
+                    enemy_rect = goblin_base_image.get_rect(midbottom=enemy_slots[enemy_index])
+                    target_is_highlighted = (
+                        enemy_id == battle_selected_target and battle_selected_target_timer > 0.0
+                    ) or enemy_id == hovered_target_id
+
+                    # A soft ground aura plus a double outline makes the selected target obvious.
+                    if target_is_highlighted:
+                        aura = pygame.Surface((enemy_rect.width + 58, 48), pygame.SRCALPHA)
+                        pulse = 0.5 + 0.5 * math.sin(pygame.time.get_ticks() / 115.0)
+                        aura_alpha = int(45 + pulse * 45)
+                        pygame.draw.ellipse(
+                            aura,
+                            (255, 198, 92, aura_alpha),
+                            aura.get_rect().inflate(-4, -8),
+                        )
+                        pygame.draw.ellipse(
+                            aura,
+                            (255, 225, 160, min(220, aura_alpha + 80)),
+                            aura.get_rect().inflate(-12, 0),
+                            2,
+                        )
+                        frame.blit(
+                            aura,
+                            (enemy_rect.centerx - aura.get_width() // 2, enemy_rect.bottom - 43),
+                        )
+
                     if enemy["alive"]:
                         draw_ground_character(frame, goblin_base_image, *enemy_slots[enemy_index])
+
+
                 draw_battle_hud(frame)
                 if battle_ui_mode == "target":
                     for target_i, target_id in enumerate(battle_engine.living("enemy")):
                         rect = pygame.Rect(650, 330 + target_i * 65, 260, 58)
                         pygame.draw.rect(frame, (18, 24, 37), rect, border_radius=4)
-                        pygame.draw.rect(frame, GOLD, rect, 2, border_radius=4)
+                        panel_hovered = rect.collidepoint(pygame.mouse.get_pos())
+                        pygame.draw.rect(
+                            frame,
+                            GOLD if panel_hovered else PANEL_INNER_BORDER,
+                            rect,
+                            2 if panel_hovered else 1,
+                            border_radius=4,
+                        )
                         label = small_font.render(f"{target_i + 1}. {battle_engine.actors[target_id]['name']} — выбрать цель", True, TEXT_COLOR)
                         frame.blit(label, label.get_rect(center=rect.center))
                 if battle_ui_mode == "skills":
