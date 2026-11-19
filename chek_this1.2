@@ -30,6 +30,109 @@ GOBLIN_CROP_RECT = (33, 507, 2079, 2725)
 GOBLIN_DISPLAY_MAX_SIZE = (150, 198)
 FONT_PATH = ASSET_ROOT / "shtxt" / "arcade.ttf"
 
+# EVT005 visual atlas library. These files are kept in the uploaded new_all folder.
+ATLAS_DIR = ASSET_ROOT / "new_all"
+PORTRAIT_ATLAS_PATH = ATLAS_DIR / "PALCHIK_portrait_atlas_1536.png"
+SKILL_ICON_ATLAS_PATH = ATLAS_DIR / "技能状态图标集.png"
+STATUS_ICON_ATLAS_PATH = ATLAS_DIR / "状态图标图集.png"
+BATTLE_EFFECT_ATLAS_PATHS = {
+    "fire": ATLAS_DIR / "火焰特效图集.png",
+    "ice": ATLAS_DIR / "冰霜特效图集.png",
+    "arcane": ATLAS_DIR / "奥术特效图集.png",
+    "paladin": ATLAS_DIR / "圣骑特效图集.png",
+    "rogue": ATLAS_DIR / "盗贼特效图集.png",
+    "warrior": ATLAS_DIR / "战士特效图集.png",
+    # Общий боевой атлас: универсальные попадания/удары для Динары и гоблинов.
+    "impact": ATLAS_DIR / "战斗特效图集.png",
+}
+
+# 3x3 portrait atlas: warrior, paladin, rogue / mage, Dinara, goblin / orc, skeleton, skeleton mage.
+BATTLE_PORTRAIT_CELLS = {
+    "warrior": (0, 0), "paladin": (1, 0), "rogue": (2, 0),
+    "mage": (0, 1), "dinara": (1, 1), "goblin": (2, 1),
+    "orc": (0, 2), "skeleton_warrior": (1, 2), "skeleton_mage": (2, 2),
+}
+
+# Skill/menu symbols from the clean 6x6 portion of the skill atlas.
+# The lower-right hourglass cell is intentionally not used because it is crossed by a watermark.
+BATTLE_MENU_ICON_CELLS = {
+    # Командные иконки используют отдельные ячейки; «Атака» и зелья
+    # рисуются небольшими векторными значками, чтобы не дублировать умения.
+    "Навыки": (3, 5), "Предметы": (1, 4), "Защита": (0, 5),
+    "Базовая атака мечом": (0, 0), "Круговая атака": (1, 0),
+    "Блок мечом": (2, 0), "Берсерк": (3, 0),
+    "Ядовитый клинок": (4, 0), "Веер клинков": (5, 0),
+    "Прыжок в тень": (0, 1), "Удар по голове": (1, 1),
+    "Удар молотом": (2, 1), "Щит веры": (3, 1),
+    "Святая молитва — цель": (4, 1), "Святая молитва — группа": (5, 1),
+    "Гнев света": (0, 2),
+    "Школа огня": (0, 4), "Огненный шар": (1, 2), "Пылающая волна": (2, 2),
+    "Клеймо пламени": (3, 2), "Метеоритный дождь": (4, 2),
+    "Ледяная стрела": (5, 2), "Школа льда": (3, 4),
+    "Ледяной шторм": (0, 3), "Ледяные оковы": (1, 3), "Ледяная броня": (2, 3),
+    "Школа арканы": (4, 4), "Арканический разряд": (3, 3),
+    "Цепная молния": (4, 3), "Похищение маны": (5, 3), "Временной разлом": (5, 4),
+}
+
+# 4x3 status atlas. The last hourglass cell (row 2, col 3) is avoided due to its watermark.
+BATTLE_STATUS_ICON_CELLS = {
+    "burn": (0, 0), "poison": (1, 0), "bleed": (2, 0), "frost": (3, 0),
+    "stun": (0, 1), "hidden": (1, 1), "shield": (2, 1), "faith_shield": (3, 1),
+    "taunt": (0, 2), "silence": (1, 2), "arcane": (2, 2),
+}
+
+# Each effect atlas is a 4x4 grid. Column order is used as a four-frame animation.
+BATTLE_EFFECT_SPECS = {
+    "fireball": ("fire", 1), "flame_wave": ("fire", 2),
+    "burning_mark": ("fire", 1), "meteor_rain": ("fire", 3),
+    "ice_shard": ("ice", 0), "frost_storm": ("ice", 1),
+    "ice_chains": ("ice", 2), "ice_armor": ("ice", 3),
+    "arcane_bolt": ("arcane", 0), "chain_lightning": ("arcane", 1),
+    "mana_siphon": ("arcane", 2), "time_rift": ("arcane", 3),
+    "warrior_strike": ("warrior", 0), "circle_attack": ("warrior", 1),
+    "sword_block": ("warrior", 2), "berserk": ("warrior", 3),
+    "venom": ("rogue", 0), "fan_blades": ("rogue", 1),
+    "shadow_jump": ("rogue", 2), "head_strike": ("rogue", 3),
+    "hammer_strike": ("paladin", 0), "faith_shield": ("paladin", 1),
+    "wrath_of_light": ("paladin", 2), "holy_prayer": ("paladin", 3),
+    "staff_strike": ("arcane", 0),
+    # Компаньон и противники: общие попадания, лечение и защитные действия.
+    "dinara_attack": ("impact", 0),
+    "dinara_heal": ("paladin", 2),
+    "dinara_defend": ("warrior", 2),
+    "goblin_attack": ("impact", 1),
+    "goblin_net": ("impact", 2),
+    "goblin_inspire": ("paladin", 1),
+}
+
+# Быстрое воспроизведение 4-кадровых боевых эффектов.
+# 85 мс на кадр вместо прежних ~170 мс: анимация ускорена примерно вдвое.
+BATTLE_VFX_FRAME_SECONDS = 0.085
+BATTLE_VFX_FRAME_COUNT = 4
+BATTLE_VFX_DURATION = BATTLE_VFX_FRAME_SECONDS * BATTLE_VFX_FRAME_COUNT
+BATTLE_VFX_FADE_SECONDS = 0.10
+
+
+def battle_ai_effect_for_event(actor_id, action_event):
+    """Return the visual effect key and target IDs for a companion/enemy action."""
+    event = action_event or {}
+    kind = event.get("kind")
+    if actor_id == "dinara":
+        if kind == "attack":
+            return "dinara_attack", [event.get("target")]
+        if kind == "heal":
+            return "dinara_heal", [event.get("target", "dinara")]
+        if kind == "defend":
+            return "dinara_defend", ["dinara"]
+    elif actor_id in ("goblin_1", "goblin_2"):
+        if kind == "attack":
+            return "goblin_attack", [event.get("target")]
+        if kind == "net":
+            return "goblin_net", list(event.get("targets", []))
+        if kind == "inspire":
+            return "goblin_inspire", [event.get("target", actor_id)]
+    return None
+
 WIDTH = 960
 HEIGHT = 540
 FPS = 60
@@ -547,6 +650,76 @@ def load_image(path):
     return pygame.image.load(str(path)).convert_alpha()
 
 
+def load_grid_atlas(path, columns, rows, expected_size, min_alpha=10):
+    """Load a fixed-grid RGBA atlas and trim transparent cell margins."""
+    atlas = load_image(path)
+    if atlas.get_size() != tuple(expected_size):
+        raise ValueError(
+            f"Неверный размер атласа {path.name}: {atlas.get_size()}, "
+            f"ожидался {tuple(expected_size)}."
+        )
+
+    cells = []
+    for row in range(rows):
+        line = []
+        y0 = round(row * atlas.get_height() / rows)
+        y1 = round((row + 1) * atlas.get_height() / rows)
+        for column in range(columns):
+            x0 = round(column * atlas.get_width() / columns)
+            x1 = round((column + 1) * atlas.get_width() / columns)
+            cell = atlas.subsurface(pygame.Rect(x0, y0, x1 - x0, y1 - y0)).copy()
+            bounds = cell.get_bounding_rect(min_alpha=min_alpha)
+            if bounds.width <= 0 or bounds.height <= 0:
+                raise ValueError(
+                    f"Пустая ячейка атласа {path.name}: row={row}, column={column}."
+                )
+            line.append(cell.subsurface(bounds).copy())
+        cells.append(line)
+    return cells
+
+
+def load_evt005_visual_assets():
+    """Load the EVT005 portrait, effect, skill-icon and status-icon atlases."""
+    required = [PORTRAIT_ATLAS_PATH, SKILL_ICON_ATLAS_PATH, STATUS_ICON_ATLAS_PATH]
+    required.extend(BATTLE_EFFECT_ATLAS_PATHS.values())
+    missing = [str(path) for path in required if not path.is_file()]
+    if missing:
+        raise FileNotFoundError(
+            "Не найдены новые визуальные ресурсы EVT005:\n" + "\n".join(missing)
+        )
+
+    portrait_grid = load_grid_atlas(
+        PORTRAIT_ATLAS_PATH, 3, 3, (1536, 1536), min_alpha=8
+    )
+    portraits = {
+        key: portrait_grid[row][column]
+        for key, (column, row) in BATTLE_PORTRAIT_CELLS.items()
+    }
+    skill_icons = load_grid_atlas(
+        SKILL_ICON_ATLAS_PATH, 6, 6, (2048, 2048), min_alpha=10
+    )
+    status_grid = load_grid_atlas(
+        STATUS_ICON_ATLAS_PATH, 4, 3, (2048, 1536), min_alpha=10
+    )
+    status_icons = {
+        key: status_grid[row][column]
+        for key, (column, row) in BATTLE_STATUS_ICON_CELLS.items()
+    }
+    effects = {
+        key: load_grid_atlas(path, 4, 4, (2048, 2048), min_alpha=12)
+        for key, path in BATTLE_EFFECT_ATLAS_PATHS.items()
+    }
+
+    if len(portraits) != 9 or len(effects) != len(BATTLE_EFFECT_ATLAS_PATHS) or len(skill_icons) != 6 or len(status_icons) != 11:
+        raise ValueError("Неожиданная структура визуальной библиотеки EVT005.")
+    return {
+        "portraits": portraits,
+        "skill_icons": skill_icons,
+        "status_icons": status_icons,
+        "effects": effects,
+    }
+
+
 def fit_image(image, max_width, max_height):
     scale = min(
         max_width / image.get_width(),
@@ -559,6 +732,30 @@ def fit_image(image, max_width, max_height):
     )
 
     return pygame.transform.smoothscale(image, size)
+
+
+def make_battle_menu_custom_icon(kind, size=30):
+    """Create tiny, distinct UI symbols for generic attack and potion actions."""
+    icon = pygame.Surface((size, size), pygame.SRCALPHA)
+    scale = size / 30.0
+    def p(value):
+        return int(round(value * scale))
+
+    if kind == "attack":
+        pygame.draw.line(icon, (238, 224, 184), (p(8), p(23)), (p(22), p(7)), p(4))
+        pygame.draw.line(icon, (255, 255, 235), (p(10), p(21)), (p(22), p(7)), p(1))
+        pygame.draw.line(icon, (205, 162, 81), (p(5), p(18)), (p(13), p(26)), p(3))
+        pygame.draw.line(icon, (231, 195, 117), (p(8), p(15)), (p(16), p(23)), p(3))
+        pygame.draw.line(icon, (105, 77, 48), (p(5), p(26)), (p(9), p(22)), p(3))
+    elif kind in ("potion_player", "potion_dinara"):
+        liquid = (82, 210, 130) if kind == "potion_player" else (235, 154, 64)
+        pygame.draw.rect(icon, (177, 151, 112), pygame.Rect(p(11), p(3), p(8), p(5)), border_radius=p(2))
+        pygame.draw.rect(icon, (190, 209, 221), pygame.Rect(p(10), p(8), p(10), p(4)), border_radius=p(2))
+        pygame.draw.rect(icon, (90, 112, 132), pygame.Rect(p(7), p(11), p(16), p(16)), border_radius=p(5))
+        pygame.draw.rect(icon, liquid, pygame.Rect(p(9), p(17), p(12), p(8)), border_radius=p(3))
+        pygame.draw.rect(icon, (215, 231, 239), pygame.Rect(p(9), p(13), p(3), p(8)), border_radius=p(1))
+        pygame.draw.rect(icon, (195, 205, 212), pygame.Rect(p(7), p(11), p(16), p(16)), width=max(1, p(1)), border_radius=p(5))
+    return icon
 
 
 def crop_transparent_bounds(image):
@@ -1293,6 +1490,10 @@ class EVT005BattleEngine:
         "dinara": {
             "hp": 100, "attack": 10, "agility": 11, "toughness": 8,
         },
+        "paladin": {
+            "hp": 130, "mp": 100, "strength": 11,
+            "agility": 9, "toughness": 13,
+        },
         "goblin": {
             "hp": 55, "strength": 8, "agility": 12, "toughness": 2,
         },
@@ -1323,10 +1524,37 @@ class EVT005BattleEngine:
         "berserk_attack_charges": 2,
         "dinara_heal_threshold": 0.35,
         "dinara_guard_threshold": 0.28,
+        # Стартовые значения Паладина: молот бесплатен, умения расходуют MP.
+        "paladin_faith_shield_mp": 18,
+        "paladin_holy_prayer_single_mp": 20,
+        "paladin_holy_prayer_group_mp": 32,
+        "paladin_wrath_mp": 24,
+        "paladin_faith_shield_hits": 3,
+        "paladin_faith_shield_recovery": 720.0,
+        "paladin_holy_prayer_recovery": 850.0,
+        "paladin_group_prayer_recovery": 1120.0,
+        "paladin_wrath_recovery": 900.0,
+        # Стартовые параметры Мага и три школы заклинаний.
+        "mage_fireball_mp": 18,
+        "mage_flame_wave_mp": 28,
+        "mage_burning_mark_mp": 16,
+        "mage_meteor_rain_mp": 42,
+        "mage_ice_shard_mp": 16,
+        "mage_frost_storm_mp": 28,
+        "mage_ice_chains_mp": 22,
+        "mage_ice_armor_mp": 24,
+        "mage_arcane_bolt_mp": 20,
+        "mage_chain_lightning_mp": 32,
+        "mage_mana_siphon_mp": 24,
+        "mage_time_rift_mp": 28,
+        "mage_single_recovery": 900.0,
+        "mage_aoe_recovery": 1180.0,
+        "mage_heavy_recovery": 1420.0,
+        "mage_utility_recovery": 820.0,
     }
 
     def __init__(self, player_name="Воин", player_stats=None, dinara_stats=None,
-                 player_skills=None, dinara_skills=None):
+                 player_skills=None, dinara_skills=None, player_class="warrior"):
         import random as _random
         self.random = _random.Random()
         self.balance = dict(self.BATTLE_BALANCE)
@@ -1342,6 +1570,9 @@ class EVT005BattleEngine:
         self.last_event = None
         self.last_action_event = None
         self.extra_turn_pending = False
+        # Для каждого гоблина отдельно учитываются оставшиеся действия провокации.
+        self.taunt_targets_by_enemy = {}
+        self.taunt_turns_by_enemy = {}
         self.actors = {
             "player": self._actor(
                 "player", player_name, "ally", "warrior",
@@ -1379,6 +1610,29 @@ class EVT005BattleEngine:
         }
         self.actors["player"]["skill_ranks"] = player_skills
         self.actors["dinara"]["skill_ranks"] = dinara_skills
+        self.player_class = player_class
+        class_defaults = {
+            "warrior": {"hp": 120, "stamina": 100, "mp": 0, "strength": 12, "agility": 10, "toughness": 10, "attack": 5.0, "crit": 0.08, "crit_mult": 1.5},
+            "rogue": {"hp": 100, "stamina": 120, "mp": 0, "strength": 11, "agility": 15, "toughness": 7, "attack": 7.0, "crit": 0.14, "crit_mult": 1.7},
+            "paladin": {"hp": 130, "stamina": 0, "mp": 100, "strength": 11, "intellect": 0, "agility": 9, "toughness": 13, "attack": 6.0, "crit": 0.08, "crit_mult": 1.5},
+            "mage": {"hp": 92, "stamina": 0, "mp": 140, "strength": 6, "intellect": 16, "agility": 12, "toughness": 7, "attack": 5.0, "crit": 0.05, "crit_mult": 1.5},
+        }
+        cfg = class_defaults.get(player_class, class_defaults["warrior"])
+        player = self.actors["player"]
+        player["role"] = player_class
+        player["max_hp"] = int(player_stats.get("Здоровье", cfg["hp"]))
+        player["hp"] = player["max_hp"]
+        player["strength"] = float(player_stats.get("Сила", cfg["strength"]))
+        player["intellect"] = float(player_stats.get("Интеллект", cfg.get("intellect", 0)))
+        player["agility"] = float(player_stats.get("Ловкость", cfg["agility"]))
+        player["toughness"] = float(player_stats.get("Стойкость", cfg["toughness"]))
+        player["base_attack"] = float(cfg["attack"])
+        player["crit_chance"] = float(cfg["crit"])
+        player["crit_multiplier"] = float(cfg["crit_mult"])
+        player["max_stamina"] = int(player_stats.get("Выносливость", cfg["stamina"]))
+        player["stamina"] = player["max_stamina"]
+        player["max_mp"] = int(player_stats.get("Магия", cfg["mp"])) if cfg["mp"] > 0 else 0
+        player["mp"] = player["max_mp"]
         # Первый момент готовности зависит от скорости каждого бойца.
         for actor in self.actors.values():
             actor["ready_at"] = 1000.0 / max(1.0, actor["agility"])
@@ -1390,13 +1644,17 @@ class EVT005BattleEngine:
             "id": actor_id, "name": name, "team": team, "role": role,
             "max_hp": int(max_hp), "hp": int(max_hp),
             "max_stamina": int(max_stamina), "stamina": int(max_stamina),
-            "strength": float(strength), "agility": float(agility),
+            "max_mp": 0, "mp": 0,
+            "strength": float(strength), "intellect": 0.0, "agility": float(agility),
             "toughness": float(toughness), "base_attack": float(base_attack),
             "crit_chance": 0.08, "crit_multiplier": float(crit_multiplier),
             "ready_at": 0.0, "alive": True,
-            "bleed_turns": 0, "stun_turns": 0,
-            "stun_immunity_turns": 0,
+            "bleed_turns": 0, "poison_turns": 0, "poison_damage": 0,
+            "burn_turns": 0, "burn_damage": 0,
+            "stun_turns": 0, "stun_immunity_turns": 0,
+            "hidden_turns": 0,
             "physical_guard": 0.0, "magic_guard": 0.0,
+            "faith_shield_hits_left": 0, "shield_label": "Защита",
             "berserk_attacks_left": 0,
             "damage_buff": 0.0, "crit_chance_buff": 0.0,
             "crit_multiplier_buff": 0.0,
@@ -1430,14 +1688,13 @@ class EVT005BattleEngine:
 
     def _advance_clock(self, target_time):
         delta = max(0.0, target_time - self.clock)
-        if delta:
-            for actor_id in ("player",):
-                actor = self.actors[actor_id]
-                if actor["alive"]:
-                    actor["stamina"] = min(
-                        actor["max_stamina"],
-                        actor["stamina"] + delta * self.balance["stamina_regen_per_time"],
-                    )
+        if delta and self.player_class in ("warrior", "rogue"):
+            actor = self.actors["player"]
+            if actor["alive"]:
+                actor["stamina"] = min(
+                    actor["max_stamina"],
+                    actor["stamina"] + delta * self.balance["stamina_regen_per_time"],
+                )
         self.clock = max(self.clock, target_time)
 
     def _damage(self, attacker_id, target_id, raw_damage, damage_type="physical",
@@ -1474,11 +1731,17 @@ class EVT005BattleEngine:
             damage *= (1.0 - mitigation)
             if target["physical_guard"] > 0.0:
                 damage *= (1.0 - target["physical_guard"])
-        elif damage_type == "magic":
+        elif damage_type in ("magic", "fire", "ice", "arcane"):
             if target["magic_guard"] > 0.0:
                 damage *= (1.0 - target["magic_guard"])
 
         dealt = max(1, int(round(damage)))
+        if damage_type in ("physical", "magic", "fire", "ice", "arcane") and target.get("faith_shield_hits_left", 0) > 0:
+            target["faith_shield_hits_left"] -= 1
+            if target["faith_shield_hits_left"] <= 0:
+                target["faith_shield_hits_left"] = 0
+                target["physical_guard"] = 0.0
+                target["magic_guard"] = 0.0
         target["hp"] = max(0, target["hp"] - dealt)
         if target["hp"] <= 0:
             target["alive"] = False
@@ -1495,16 +1758,28 @@ class EVT005BattleEngine:
         raw = (attacker["base_attack"] + attacker["strength"] * 0.85) * coefficient
         ranks = attacker.get("skill_ranks", {})
         if attacker_id == "player":
-            skill_key = skill_key or "Базовая атака мечом"
+            default_skill = {
+                "warrior": "Базовая атака мечом",
+                "rogue": "Ядовитый клинок",
+                "paladin": "Удар молотом",
+            }.get(self.player_class, "Базовая атака мечом")
+            skill_key = skill_key or default_skill
             rank = int(ranks.get(skill_key, 1))
-            rank_bonus = 0.10 if skill_key == "Базовая атака мечом" else 0.075
-            raw *= (1.0 + max(0, rank - 1) * rank_bonus)
+            raw *= (1.0 + max(0, rank - 1) * 0.10)
         elif attacker_id == "dinara":
             rank = int(ranks.get("Атака скалкой", 1))
             raw *= (1.0 + max(0, rank - 1) * 0.10)
         if attacker["berserk_attacks_left"] > 0:
             raw *= (1.0 + attacker["damage_buff"])
         return raw
+
+    def _spell_attack_value(self, actor_id, coefficient=1.0, skill_key=None):
+        actor = self.actors[actor_id]
+        raw = (actor["base_attack"] + actor.get("intellect", 0.0) * 1.10) * coefficient
+        if actor_id == "player" and skill_key:
+            rank = int(actor.get("skill_ranks", {}).get(skill_key, 1))
+            raw *= 1.0 + max(0, rank - 1) * 0.10
+        return max(1.0, raw)
 
     def _consume_stamina(self, actor_id, cost):
         actor = self.actors[actor_id]
@@ -1533,6 +1808,16 @@ class EVT005BattleEngine:
             actor["stun_immunity_turns"] -= 1
         if actor["berserk_attacks_left"] > 0 and actor_id != "player":
             actor["berserk_attacks_left"] -= 1
+        if actor_id in ("goblin_1", "goblin_2"):
+            for ally_id in ("player", "dinara"):
+                ally = self.actors[ally_id]
+                if ally["hidden_turns"] > 0:
+                    ally["hidden_turns"] -= 1
+            if self.taunt_turns_by_enemy.get(actor_id, 0) > 0:
+                self.taunt_turns_by_enemy[actor_id] -= 1
+                if self.taunt_turns_by_enemy[actor_id] <= 0:
+                    self.taunt_turns_by_enemy.pop(actor_id, None)
+                    self.taunt_targets_by_enemy.pop(actor_id, None)
         actor["ready_at"] = self.clock + (1.0 if extra_turn else recovery * 10.0 / max(1.0, actor["agility"]))
         self.current_actor_id = None
         if self.result is None:
@@ -1551,8 +1836,9 @@ class EVT005BattleEngine:
             actor_id = order[0]
             actor = self.actors[actor_id]
             self._advance_clock(actor["ready_at"])
-            actor["physical_guard"] = 0.0
-            actor["magic_guard"] = 0.0
+            if actor.get("faith_shield_hits_left", 0) <= 0:
+                actor["physical_guard"] = 0.0
+                actor["magic_guard"] = 0.0
 
             # Кровотечение наносит периодический урон без учёта защиты.
             if actor["bleed_turns"] > 0:
@@ -1560,6 +1846,33 @@ class EVT005BattleEngine:
                 actor["hp"] = max(0, actor["hp"] - bleed)
                 actor["bleed_turns"] -= 1
                 self.last_event = {"kind": "bleed", "target": actor_id, "damage": bleed}
+                if actor["hp"] <= 0:
+                    actor["alive"] = False
+                if self.check_result() is not None:
+                    self.current_actor_id = None
+                    return None
+                if not actor["alive"]:
+                    continue
+
+            # Яд наносит периодический урон без учёта физической и магической защиты.
+            if actor["poison_turns"] > 0:
+                poison = int(actor["poison_damage"])
+                actor["hp"] = max(0, actor["hp"] - poison)
+                actor["poison_turns"] -= 1
+                self.last_event = {"kind": "poison", "target": actor_id, "damage": poison}
+                if actor["hp"] <= 0:
+                    actor["alive"] = False
+                if self.check_result() is not None:
+                    self.current_actor_id = None
+                    return None
+                if not actor["alive"]:
+                    continue
+            # Горение наносит периодический урон без учёта физической и магической защиты.
+            if actor.get("burn_turns", 0) > 0:
+                burn = max(1, int(actor.get("burn_damage", 1)))
+                actor["hp"] = max(0, actor["hp"] - burn)
+                actor["burn_turns"] -= 1
+                self.last_event = {"kind": "burn", "target": actor_id, "damage": burn}
                 if actor["hp"] <= 0:
                     actor["alive"] = False
                 if self.check_result() is not None:
@@ -1584,7 +1897,7 @@ class EVT005BattleEngine:
         self.result = self.check_result() or "draw"
         return None
 
-    def player_attack(self, target_id):
+    def player_warrior_attack(self, target_id):
         actor_id = "player"
         if self.current_actor_id != actor_id or not self.alive(target_id) or self.actors[target_id]["team"] != "enemy":
             return False
@@ -1614,6 +1927,310 @@ class EVT005BattleEngine:
                 actor["crit_chance_buff"] = 0.0
                 actor["crit_multiplier_buff"] = 0.0
         self._finish_action(actor_id, self.balance["basic_recovery"])
+        return True
+
+    def _apply_poison(self, target_id, base_damage=3, turns=3, scale_existing=False):
+        if not self.alive(target_id):
+            return False
+        target = self.actors[target_id]
+        if target["poison_turns"] > 0 and scale_existing:
+            target["poison_damage"] = min(12, max(1, int(round(target["poison_damage"] * 1.5))))
+            target["poison_turns"] = max(target["poison_turns"], int(turns))
+        else:
+            target["poison_damage"] = max(int(target["poison_damage"]), int(base_damage))
+            target["poison_turns"] = max(target["poison_turns"], int(turns))
+        return True
+
+    def player_attack(self, target_id):
+        if self.player_class == "warrior":
+            return self.player_warrior_attack(target_id)
+        if self.player_class == "rogue":
+            return self.player_venom_blade(target_id)
+        if self.player_class == "paladin":
+            return self.player_hammer_strike(target_id)
+        if self.player_class == "mage":
+            return self.player_staff_attack(target_id)
+        return False
+
+    def player_staff_attack(self, target_id):
+        actor_id = "player"
+        if (self.player_class != "mage" or self.current_actor_id != actor_id
+                or not self.alive(target_id) or self.actors[target_id]["team"] != "enemy"):
+            return False
+        damage = self._physical_attack_value(actor_id, 0.62, "Удар посохом")
+        result = self._damage(actor_id, target_id, damage, damage_type="physical")
+        self.last_action_event = {
+            "kind": "staff_attack", "attacker": actor_id, "target": target_id,
+            "damage": result["damage"], "critical": result["critical"],
+            "dodged": result["dodged"],
+        }
+        self._finish_action(actor_id, self.balance["basic_recovery"])
+        return True
+
+    def player_hammer_strike(self, target_id):
+        actor_id = "player"
+        if (self.player_class != "paladin" or self.current_actor_id != actor_id
+                or not self.alive(target_id) or self.actors[target_id]["team"] != "enemy"):
+            return False
+        rank = int(self.actors[actor_id].get("skill_ranks", {}).get("Удар молотом", 1))
+        damage = self._physical_attack_value(actor_id, 1.0, "Удар молотом")
+        result = self._damage(actor_id, target_id, damage)
+        self.last_action_event = {
+            "kind": "hammer", "attacker": actor_id, "target": target_id,
+            "damage": result["damage"], "critical": result["critical"],
+            "dodged": result["dodged"], "rank": rank,
+        }
+        self._finish_action(actor_id, self.balance["basic_recovery"])
+        return True
+
+    def player_venom_blade(self, target_id):
+        actor_id = "player"
+        actor = self.actors[actor_id]
+        cost = 12
+        if self.current_actor_id != actor_id or not self.alive(target_id) or self.actors[target_id]["team"] != "enemy" or actor["stamina"] < cost:
+            return False
+        actor["stamina"] -= cost
+        rank = int(actor.get("skill_ranks", {}).get("Ядовитый клинок", 1))
+        damage = self._physical_attack_value(actor_id, 1.0 + max(0, rank - 1) * 0.05, "Ядовитый клинок")
+        result = self._damage(actor_id, target_id, damage)
+        poison_applied = bool(result["damage"]) and self._apply_poison(target_id, 3 + max(0, rank - 1), 3)
+        self.last_action_event = {"kind": "venom", "attacker": actor_id, "target": target_id,
+                                  "damage": result["damage"], "critical": result["critical"],
+                                  "dodged": result["dodged"], "poison": poison_applied}
+        self._finish_action(actor_id, self.balance["basic_recovery"])
+        return True
+
+    def player_fan_blades(self):
+        actor_id = "player"
+        actor = self.actors[actor_id]
+        cost = 30
+        if self.current_actor_id != actor_id or actor["stamina"] < cost:
+            return False
+        actor["stamina"] -= cost
+        rank = int(actor.get("skill_ranks", {}).get("Веер клинков", 1))
+        coefficient = min(0.90, 0.68 + max(0, rank - 1) * 0.06)
+        hits = []
+        for target_id in self.living("enemy"):
+            result = self._damage(actor_id, target_id,
+                                  self._physical_attack_value(actor_id, coefficient, "Веер клинков"))
+            poisoned = bool(result["damage"]) and self._apply_poison(
+                target_id, 2 + max(0, rank - 1), 3, scale_existing=True
+            )
+            hits.append({"target": target_id, "damage": result["damage"], "poison": poisoned})
+            if self.result:
+                break
+        self.last_action_event = {"kind": "fan_blades", "attacker": actor_id, "hits": hits}
+        self._finish_action(actor_id, self.balance["circle_recovery"])
+        return True
+
+    def player_shadow_jump(self):
+        actor_id = "player"
+        actor = self.actors[actor_id]
+        cost = 22
+        if self.current_actor_id != actor_id or actor["stamina"] < cost:
+            return False
+        actor["stamina"] -= cost
+        rank = int(actor.get("skill_ranks", {}).get("Прыжок в тень", 1))
+        actor["hidden_turns"] = 2 + max(0, rank - 1)
+        self.last_action_event = {"kind": "stealth", "actor": actor_id, "turns": actor["hidden_turns"]}
+        self._finish_action(actor_id, self.balance["block_recovery"])
+        return True
+
+    def player_head_strike(self, target_id):
+        actor_id = "player"
+        actor = self.actors[actor_id]
+        cost = 24
+        if self.current_actor_id != actor_id or actor["stamina"] < cost or not self.alive(target_id) or self.actors[target_id]["team"] != "enemy":
+            return False
+        actor["stamina"] -= cost
+        rank = int(actor.get("skill_ranks", {}).get("Удар по голове", 1))
+        damage = self._physical_attack_value(actor_id, 0.78 + max(0, rank - 1) * 0.04, "Удар по голове")
+        result = self._damage(actor_id, target_id, damage)
+        stunned = bool(result["damage"]) and self._apply_stun(target_id, 1 + (1 if rank >= 3 else 0))
+        self.last_action_event = {"kind": "head_strike", "attacker": actor_id, "target": target_id,
+                                  "damage": result["damage"], "stunned": stunned, "dodged": result["dodged"]}
+        self._finish_action(actor_id, self.balance["goblin_net_recovery"])
+        return True
+
+
+    def player_faith_shield(self):
+        actor_id = "player"
+        actor = self.actors[actor_id]
+        cost = self.balance["paladin_faith_shield_mp"]
+        if self.player_class != "paladin" or self.current_actor_id != actor_id or actor["mp"] < cost:
+            return False
+        rank = int(actor.get("skill_ranks", {}).get("Щит веры", 1))
+        guard = min(0.85, 0.55 + max(0, rank - 1) * 0.10)
+        actor["mp"] -= cost
+        actor["physical_guard"] = guard
+        actor["magic_guard"] = guard
+        actor["faith_shield_hits_left"] = self.balance["paladin_faith_shield_hits"]
+        actor["shield_label"] = "Щит веры"
+        self.last_action_event = {
+            "kind": "faith_shield", "actor": actor_id,
+            "physical_guard": guard, "magic_guard": guard,
+            "hits_left": actor["faith_shield_hits_left"],
+        }
+        self._finish_action(actor_id, self.balance["paladin_faith_shield_recovery"])
+        return True
+
+    def player_holy_prayer(self, target_id=None, group=False):
+        actor_id = "player"
+        actor = self.actors[actor_id]
+        if self.player_class != "paladin" or self.current_actor_id != actor_id:
+            return False
+        rank = int(actor.get("skill_ranks", {}).get("Святая молитва", 1))
+        if group:
+            cost = self.balance["paladin_holy_prayer_group_mp"]
+            heal_percent = 0.18 + max(0, rank - 1) * 0.04
+            targets = self.living("ally")
+        else:
+            cost = self.balance["paladin_holy_prayer_single_mp"]
+            heal_percent = 0.32 + max(0, rank - 1) * 0.06
+            if target_id not in self.living("ally"):
+                return False
+            targets = [target_id]
+        if actor["mp"] < cost:
+            return False
+        healing = []
+        for target in targets:
+            target_actor = self.actors[target]
+            amount = max(1, int(round(target_actor["max_hp"] * heal_percent)))
+            healed = min(amount, target_actor["max_hp"] - target_actor["hp"])
+            if healed > 0:
+                healing.append({"target": target, "amount": healed})
+        if not healing:
+            return False
+        actor["mp"] -= cost
+        for item in healing:
+            self.actors[item["target"]]["hp"] += item["amount"]
+        self.last_action_event = {
+            "kind": "holy_prayer", "actor": actor_id,
+            "group": bool(group), "healing": healing,
+            "mp_spent": cost,
+        }
+        recovery = (self.balance["paladin_group_prayer_recovery"] if group
+                    else self.balance["paladin_holy_prayer_recovery"])
+        self._finish_action(actor_id, recovery)
+        return True
+
+    def player_wrath_of_light(self):
+        actor_id = "player"
+        actor = self.actors[actor_id]
+        cost = self.balance["paladin_wrath_mp"]
+        if self.player_class != "paladin" or self.current_actor_id != actor_id or actor["mp"] < cost:
+            return False
+        enemies = self.living("enemy")
+        if not enemies:
+            return False
+        rank = int(actor.get("skill_ranks", {}).get("Гнев света", 1))
+        duration = 2 + max(0, rank - 1)
+        actor["mp"] -= cost
+        for enemy_id in enemies:
+            self.taunt_targets_by_enemy[enemy_id] = actor_id
+            self.taunt_turns_by_enemy[enemy_id] = duration
+        self.last_action_event = {
+            "kind": "wrath_of_light", "actor": actor_id,
+            "targets": list(enemies), "duration": duration,
+        }
+        self._finish_action(actor_id, self.balance["paladin_wrath_recovery"])
+        return True
+
+    def player_mage_spell(self, spell_key, target_id=None):
+        """Единый обработчик двенадцати заклинаний трёх школ Мага."""
+        actor_id = "player"
+        actor = self.actors[actor_id]
+        if self.player_class != "mage" or self.current_actor_id != actor_id:
+            return False
+
+        spells = {
+            # Школа огня
+            "fireball": {"name": "Огненный шар", "rank": "Огненный шар", "cost": "mage_fireball_mp", "type": "fire", "coefficient": 1.00, "recovery": "mage_single_recovery", "target": True},
+            "flame_wave": {"name": "Пылающая волна", "rank": "Пылающая волна", "cost": "mage_flame_wave_mp", "type": "fire", "coefficient": 0.72, "recovery": "mage_aoe_recovery", "aoe": True},
+            "burning_mark": {"name": "Клеймо пламени", "rank": "Клеймо пламени", "cost": "mage_burning_mark_mp", "type": "fire", "coefficient": 0.55, "recovery": "mage_single_recovery", "target": True, "burn": True},
+            "meteor_rain": {"name": "Метеоритный дождь", "rank": "Метеоритный дождь", "cost": "mage_meteor_rain_mp", "type": "fire", "coefficient": 0.92, "recovery": "mage_heavy_recovery", "aoe": True},
+            # Школа льда
+            "ice_shard": {"name": "Ледяная стрела", "rank": "Ледяная стрела", "cost": "mage_ice_shard_mp", "type": "ice", "coefficient": 1.00, "recovery": "mage_single_recovery", "target": True},
+            "frost_storm": {"name": "Ледяной шторм", "rank": "Ледяной шторм", "cost": "mage_frost_storm_mp", "type": "ice", "coefficient": 0.65, "recovery": "mage_aoe_recovery", "aoe": True},
+            "ice_chains": {"name": "Ледяные оковы", "rank": "Ледяные оковы", "cost": "mage_ice_chains_mp", "type": "ice", "coefficient": 0.60, "recovery": "mage_single_recovery", "target": True, "stun": True},
+            "ice_armor": {"name": "Ледяная броня", "rank": "Ледяная броня", "cost": "mage_ice_armor_mp", "type": "ice", "coefficient": 0.0, "recovery": "mage_utility_recovery", "guard": True},
+            # Школа арканы
+            "arcane_bolt": {"name": "Арканический разряд", "rank": "Арканический разряд", "cost": "mage_arcane_bolt_mp", "type": "arcane", "coefficient": 1.05, "recovery": "mage_single_recovery", "target": True},
+            "chain_lightning": {"name": "Цепная молния", "rank": "Цепная молния", "cost": "mage_chain_lightning_mp", "type": "arcane", "coefficient": 0.75, "recovery": "mage_aoe_recovery", "aoe": True},
+            "mana_siphon": {"name": "Похищение маны", "rank": "Похищение маны", "cost": "mage_mana_siphon_mp", "type": "arcane", "coefficient": 0.65, "recovery": "mage_single_recovery", "target": True, "siphon": True},
+            "time_rift": {"name": "Временной разлом", "rank": "Временной разлом", "cost": "mage_time_rift_mp", "type": "arcane", "coefficient": 0.88, "recovery": "mage_heavy_recovery", "target": True, "delay": True},
+        }
+        spell = spells.get(spell_key)
+        if spell is None:
+            return False
+        cost = self.balance[spell["cost"]]
+        if actor["mp"] < cost:
+            return False
+        if spell.get("target"):
+            if (target_id not in self.living("enemy") or not self.alive(target_id)):
+                return False
+            targets = [target_id]
+        elif spell.get("aoe"):
+            targets = self.living("enemy")
+            if not targets:
+                return False
+        else:
+            targets = []
+
+        rank = int(actor.get("skill_ranks", {}).get(spell["rank"], 1))
+        actor["mp"] -= cost
+        event_hits = []
+        if spell.get("guard"):
+            guard = min(0.70, 0.35 + max(0, rank - 1) * 0.05)
+            actor["physical_guard"] = guard
+            actor["magic_guard"] = guard
+            actor["faith_shield_hits_left"] = 2 + (1 if rank >= 3 else 0)
+            actor["shield_label"] = "Ледяная броня"
+            self.last_action_event = {
+                "kind": "mage_spell", "spell": spell_key, "spell_name": spell["name"],
+                "actor": actor_id, "physical_guard": guard, "magic_guard": guard,
+                "hits_left": actor["faith_shield_hits_left"], "rank": rank,
+            }
+        else:
+            for victim_id in targets:
+                coefficient = spell["coefficient"] * (1.0 + max(0, rank - 1) * 0.10)
+                damage = self._spell_attack_value(actor_id, coefficient)
+                result = self._damage(
+                    actor_id, victim_id, damage,
+                    damage_type=spell["type"], can_crit=False,
+                )
+                hit = {"target": victim_id, "damage": result["damage"]}
+                if result["damage"] and spell.get("burn"):
+                    victim = self.actors[victim_id]
+                    victim["burn_damage"] = max(
+                        victim.get("burn_damage", 0), 4 + max(0, rank - 1)
+                    )
+                    victim["burn_turns"] = max(
+                        victim.get("burn_turns", 0), 3 + (1 if rank >= 3 else 0)
+                    )
+                    hit["burn"] = True
+                if result["damage"] and spell.get("stun"):
+                    hit["stunned"] = self._apply_stun(
+                        victim_id, 1 + (1 if rank >= 3 else 0)
+                    )
+                if result["damage"] and spell.get("siphon"):
+                    restored = min(
+                        actor["max_mp"] - actor["mp"], 12 + max(0, rank - 1) * 5
+                    )
+                    actor["mp"] += restored
+                    hit["mp_restored"] = restored
+                if result["damage"] and spell.get("delay"):
+                    delay = 2200.0 + max(0, rank - 1) * 600.0
+                    self.actors[victim_id]["ready_at"] += delay
+                    hit["delay"] = delay
+                event_hits.append(hit)
+            self.last_action_event = {
+                "kind": "mage_spell", "spell": spell_key, "spell_name": spell["name"],
+                "actor": actor_id, "hits": event_hits, "rank": rank,
+                "damage_type": spell["type"],
+            }
+
+        self._finish_action(actor_id, self.balance[spell["recovery"]])
         return True
 
     def player_circle_attack(self):
@@ -1752,16 +2369,26 @@ class EVT005BattleEngine:
         actor = self.actors[actor_id]
         if self.current_actor_id != actor_id or not self.alive(actor_id):
             return False
-        targets = self.living("ally")
+        forced_target = self.taunt_targets_by_enemy.get(actor_id)
+        forced_turns = self.taunt_turns_by_enemy.get(actor_id, 0)
+        if forced_turns > 0 and forced_target and self.alive(forced_target):
+            # Провокация имеет приоритет даже над невидимостью другого союзника.
+            targets = [forced_target]
+        else:
+            if forced_turns > 0:
+                self.taunt_turns_by_enemy.pop(actor_id, None)
+                self.taunt_targets_by_enemy.pop(actor_id, None)
+            targets = [aid for aid in self.living("ally")
+                       if self.actors[aid].get("hidden_turns", 0) <= 0]
         if not targets:
-            self.result = "defeat"
+            self._finish_action(actor_id, self.balance["goblin_attack_recovery"])
             return True
 
-        # Воодушевление: защита от стана применяется к себе или союзнику.
-        # В тестовом бою с Воином и Динарой угрозы стана со стороны союзников нет,
-        # поэтому AI не тратит действие впустую. Механика готова для будущих классов.
+        # Воодушевление полезно против Разбойника, у которого есть оглушение.
+        # Паладин не накладывает стан, поэтому против него гоблины не тратят
+        # действие на иммунитет без тактической причины.
         enemy_has_stun = any(
-            self.actors[aid]["role"] in ("rogue", "paladin")
+            self.actors[aid]["role"] == "rogue"
             for aid in targets
         )
         self_or_ally = [
@@ -1844,7 +2471,8 @@ class EVT005BattleEngine:
             actor_id: {
                 "name": actor["name"], "hp": actor["hp"],
                 "max_hp": actor["max_hp"], "stamina": actor["stamina"],
-                "max_stamina": actor["max_stamina"], "alive": actor["alive"],
+                "max_stamina": actor["max_stamina"], "mp": actor["mp"],
+                "max_mp": actor["max_mp"], "alive": actor["alive"],
                 "bleed_turns": actor["bleed_turns"],
                 "stun_turns": actor["stun_turns"],
                 "stun_immunity_turns": actor["stun_immunity_turns"],
@@ -1973,6 +2601,37 @@ def _evt005_battle_self_test():
     return True
 
 
+def _evt005_visual_asset_self_test():
+    """Headless resource-load test for the new EVT005 visual atlases."""
+    pygame.init()
+    pygame.display.set_mode((1, 1))
+    try:
+        assets = load_evt005_visual_assets()
+        assert len(assets["portraits"]) == 9
+        assert len(assets["skill_icons"]) == 6 and all(len(row) == 6 for row in assets["skill_icons"])
+        assert len(assets["status_icons"]) == 11
+        assert len(assets["effects"]) == 7
+        assert all(len(grid) == 4 and all(len(row) == 4 for row in grid)
+                   for grid in assets["effects"].values())
+        assert BATTLE_VFX_FRAME_COUNT == 4
+        assert abs(BATTLE_VFX_FRAME_SECONDS - 0.085) < 1e-9
+        assert 0.33 <= BATTLE_VFX_DURATION <= 0.35
+        assert abs(BATTLE_VFX_FADE_SECONDS - 0.10) < 1e-9
+        assert len(set(BATTLE_MENU_ICON_CELLS.values())) == len(BATTLE_MENU_ICON_CELLS)
+        assert all(atlas_key in assets["effects"] and 0 <= row < 4
+                   for atlas_key, row in BATTLE_EFFECT_SPECS.values())
+        assert battle_ai_effect_for_event("dinara", {"kind": "attack", "target": "goblin_1"}) == ("dinara_attack", ["goblin_1"])
+        assert battle_ai_effect_for_event("dinara", {"kind": "heal", "target": "player"}) == ("dinara_heal", ["player"])
+        assert battle_ai_effect_for_event("dinara", {"kind": "defend"}) == ("dinara_defend", ["dinara"])
+        assert battle_ai_effect_for_event("goblin_1", {"kind": "attack", "target": "dinara"}) == ("goblin_attack", ["dinara"])
+        assert battle_ai_effect_for_event("goblin_2", {"kind": "net", "targets": ["player", "dinara"]}) == ("goblin_net", ["player", "dinara"])
+        assert battle_ai_effect_for_event("goblin_1", {"kind": "inspire", "target": "goblin_2"}) == ("goblin_inspire", ["goblin_2"])
+        assert battle_ai_effect_for_event("player", {"kind": "attack", "target": "goblin_1"}) is None
+    finally:
+        pygame.display.quit()
+        pygame.quit()
+
+
 def main():
     pygame.init()
 
@@ -2007,6 +2666,13 @@ def main():
     emotions = load_dinara()
     class_images = load_class_images()
     goblin_base_image = load_goblin_base()
+    visual_assets = load_evt005_visual_assets()
+    battle_portraits = visual_assets["portraits"]
+    visual_assets["menu_custom_icons"] = {
+        "Атака": make_battle_menu_custom_icon("attack"),
+        "Лечить героя": make_battle_menu_custom_icon("potion_player"),
+        "Лечить Динару": make_battle_menu_custom_icon("potion_dinara"),
+    }
 
     neutral = emotions["base"]
     silhouette = make_silhouette(neutral)
@@ -2087,6 +2753,11 @@ def main():
     battle_selected_skill = 0
     battle_selected_target_index = 0
     battle_selected_ally_index = 0
+    battle_pending_action = None
+    battle_spell_flash = {
+        "type": None, "row": 0, "effect_key": None, "targets": [],
+        "timer": 0.0, "duration": 0.0, "spell": "",
+    }
     battle_story_goblins_visible = False
     battle_story_bodies_visible = False
     battle_triggered = False
@@ -2123,6 +2794,42 @@ def main():
                              "Стойкость": 8},
                    "skills": {"Атака скалкой": 1}},
     }
+    PLAYER_CLASS_DEFAULTS = {
+        "ВОИН": {
+            "stats": {"Сила": 12, "Здоровье": 120, "Ловкость": 10, "Стойкость": 10, "Выносливость": 100},
+            "skills": {"Базовая атака мечом": 1, "Круговая атака": 1, "Блок мечом": 1, "Берсерк": 1},
+        },
+        "ПЛУТ": {
+            "stats": {"Сила": 11, "Здоровье": 100, "Ловкость": 15, "Стойкость": 7, "Выносливость": 120},
+            "skills": {"Ядовитый клинок": 1, "Веер клинков": 1, "Прыжок в тень": 1, "Удар по голове": 1},
+        },
+        "ПАЛАДИН": {
+            "stats": {"Сила": 11, "Здоровье": 130, "Ловкость": 9, "Стойкость": 13, "Магия": 100},
+            "skills": {"Удар молотом": 1, "Щит веры": 1, "Святая молитва": 1, "Гнев света": 1},
+        },
+        "МАГ": {
+            "stats": {"Интеллект": 16, "Здоровье": 92, "Ловкость": 12, "Стойкость": 7, "Магия": 140},
+            "skills": {
+                "Огненный шар": 1, "Пылающая волна": 1, "Клеймо пламени": 1, "Метеоритный дождь": 1,
+                "Ледяная стрела": 1, "Ледяной шторм": 1, "Ледяные оковы": 1, "Ледяная броня": 1,
+                "Арканический разряд": 1, "Цепная молния": 1, "Похищение маны": 1, "Временной разлом": 1,
+            },
+        },
+    }
+    progression["player"]["class_name"] = "ВОИН"
+
+    def ensure_player_class_progression(class_name):
+        defaults = PLAYER_CLASS_DEFAULTS.get(class_name)
+        if defaults is None:
+            return False
+        data = progression["player"]
+        if data.get("class_name") == class_name:
+            return True
+        data["class_name"] = class_name
+        data["stats"] = dict(defaults["stats"])
+        data["skills"] = dict(defaults["skills"])
+        print(f"[EVT005][CLASS] Player combat profile configured: {class_name}")
+        return True
     levelup_notifications = {"player": 0.0, "dinara": 0.0}
     profile_character = "player"
     profile_tab = "stats"
@@ -2438,19 +3145,23 @@ def main():
         nonlocal battle_engine, battle_phase, battle_ai_elapsed
         nonlocal battle_message, battle_message_timer, battle_ui_mode
         nonlocal battle_round, battle_turn_owner, battle_selected_target
-        nonlocal battle_selected_target_timer
+        nonlocal battle_selected_target_timer, battle_pending_action
         nonlocal stage, battle_story_goblins_visible
-        if not selected_class_data or selected_class_data.get("name") != "ВОИН":
-            battle_message = "Первая тестовая боевая сборка пока поддерживает только класс ВОИН. Перезапустите событие и выберите ВОИН."
+        class_name = selected_class_data.get("name") if selected_class_data else ""
+        class_key = {"ВОИН": "warrior", "ПЛУТ": "rogue", "ПАЛАДИН": "paladin", "МАГ": "mage"}.get(class_name)
+        if class_key is None:
+            battle_message = "Не удалось определить боевой класс."
             battle_message_timer = 8.0
             stage = "battle_class_notice"
             return
+        ensure_player_class_progression(class_name)
         battle_engine = EVT005BattleEngine(
-            player_name or "Воин",
+            player_name or class_name.title(),
             progression["player"]["stats"],
             progression["dinara"]["stats"],
             progression["player"]["skills"],
             progression["dinara"]["skills"],
+            player_class=class_key,
         )
         battle_engine.advance_to_next_turn()
         battle_phase = "active"
@@ -2458,6 +3169,11 @@ def main():
         battle_turn_owner = battle_engine.current_actor_id
         battle_selected_target = None
         battle_selected_target_timer = 0.0
+        battle_pending_action = None
+        battle_spell_flash.update({
+            "type": None, "row": 0, "effect_key": None, "targets": [],
+            "timer": 0.0, "duration": 0.0, "spell": "",
+        })
         battle_ai_elapsed = 0.0
         battle_message = "Бой начался!"
         battle_message_timer = 2.0
@@ -2467,7 +3183,7 @@ def main():
         print("[EVT005][BATTLE] First goblin encounter started.")
 
     def fast_travel_to_battle():
-        """F2-only shortcut: skip story setup and start the first battle as the Warrior."""
+        """F2-only shortcut: skip story setup and battle with the currently selected class."""
         nonlocal player_name, selected_class, selected_class_data
         nonlocal fast_travel_active, fast_travel_restore_state
         nonlocal story_nodes, story_index, story_elapsed, story_next_action
@@ -2483,13 +3199,28 @@ def main():
                 player_name, selected_class, selected_class_data
             )
 
-        warrior_index = next(
-            index for index, class_data in enumerate(CLASSES)
-            if class_data["name"] == "ВОИН"
+        supported_classes = ("ВОИН", "ПЛУТ", "ПАЛАДИН", "МАГ")
+        current_class_name = (
+            selected_class_data.get("name") if selected_class_data else None
         )
+        if current_class_name not in supported_classes:
+            if (0 <= selected_class < len(CLASSES)
+                    and CLASSES[selected_class]["name"] in supported_classes):
+                selected_class_data = CLASSES[selected_class]
+            else:
+                warrior_index = next(
+                    index for index, class_data in enumerate(CLASSES)
+                    if class_data["name"] == "ВОИН"
+                )
+                selected_class = warrior_index
+                selected_class_data = CLASSES[warrior_index]
+        else:
+            selected_class = next(
+                index for index, class_data in enumerate(CLASSES)
+                if class_data["name"] == current_class_name
+            )
+        ensure_player_class_progression(selected_class_data["name"])
         player_name = "тапок"
-        selected_class = warrior_index
-        selected_class_data = CLASSES[warrior_index]
 
         # Clear any unfinished dialogue/choice so the battle opens cleanly.
         pygame.key.stop_text_input()
@@ -2606,15 +3337,15 @@ def main():
 
     def profile_stat_rows(character_id):
         if character_id == "player":
-            increments = {
-                "Сила": 1, "Здоровье": 10, "Ловкость": 1,
-                "Стойкость": 1, "Выносливость": 10,
-            }
+            increments = {"Сила": 1, "Здоровье": 10, "Ловкость": 1, "Стойкость": 1}
+            if "Выносливость" in progression["player"]["stats"]:
+                increments["Выносливость"] = 10
+            if "Магия" in progression["player"]["stats"]:
+                increments["Магия"] = 10
+            if "Интеллект" in progression["player"]["stats"]:
+                increments["Интеллект"] = 1
         else:
-            increments = {
-                "Здоровье": 10, "Сила": 1,
-                "Ловкость": 1, "Стойкость": 1,
-            }
+            increments = {"Здоровье": 10, "Сила": 1, "Ловкость": 1, "Стойкость": 1}
         return [(name, value, increments[name])
                 for name, value in progression[character_id]["stats"].items()]
 
@@ -2649,6 +3380,66 @@ def main():
                     f"крит. шанс: +{crit_now} → +{crit_next} п.п.; "
                     f"крит. множитель: +{mult_now:.2f} → +{mult_next:.2f}"
                 )
+            elif character_id == "player" and progression["player"].get("class_name") == "ПАЛАДИН" and name == "Удар молотом":
+                current = (rank - 1) * 10
+                upcoming = (next_rank - 1) * 10
+                preview = f"Бонус физического урона: {current}% → {upcoming}%"
+            elif character_id == "player" and progression["player"].get("class_name") == "ПАЛАДИН" and name == "Щит веры":
+                current = 55 + (rank - 1) * 10
+                upcoming = 55 + (next_rank - 1) * 10
+                preview = f"Снижение физического и магического урона: {current}% → {upcoming}%"
+            elif character_id == "player" and progression["player"].get("class_name") == "ПАЛАДИН" and name == "Святая молитва":
+                single_now = 32 + (rank - 1) * 6
+                single_next = 32 + (next_rank - 1) * 6
+                group_now = 18 + (rank - 1) * 4
+                group_next = 18 + (next_rank - 1) * 4
+                preview = f"Лечение цели: {single_now}% → {single_next}%; группы: {group_now}% → {group_next}%"
+            elif character_id == "player" and progression["player"].get("class_name") == "ПАЛАДИН" and name == "Гнев света":
+                current = 2 + rank - 1
+                upcoming = 2 + next_rank - 1
+                preview = f"Провокация каждого врага: {current} → {upcoming} его действий"
+            elif character_id == "player" and progression["player"].get("class_name") == "ПЛУТ" and name == "Ядовитый клинок":
+                current = 3 + rank - 1
+                upcoming = 3 + next_rank - 1
+                damage_current = 100 + (rank - 1) * 5
+                damage_upcoming = 100 + (next_rank - 1) * 5
+                preview = (
+                    f"Прямой урон: {damage_current}% → {damage_upcoming}%; "
+                    f"яд за тик: {current} → {upcoming}"
+                )
+            elif character_id == "player" and progression["player"].get("class_name") == "ПЛУТ" and name == "Веер клинков":
+                current = 68 + (rank - 1) * 6
+                upcoming = 68 + (next_rank - 1) * 6
+                poison_current = 2 + rank - 1
+                poison_upcoming = 2 + next_rank - 1
+                preview = (
+                    f"Урон по каждой цели: {current}% → {upcoming}%; "
+                    f"яд за тик: {poison_current} → {poison_upcoming}"
+                )
+            elif character_id == "player" and progression["player"].get("class_name") == "ПЛУТ" and name == "Прыжок в тень":
+                current = 2 + rank - 1
+                upcoming = 2 + next_rank - 1
+                preview = f"Скрытность: {current} → {upcoming} действий врагов"
+            elif character_id == "player" and progression["player"].get("class_name") == "ПЛУТ" and name == "Удар по голове":
+                current = 1 + (1 if rank >= 3 else 0)
+                upcoming = 1 + (1 if next_rank >= 3 else 0)
+                preview = f"Оглушение: {current} → {upcoming} ходов"
+            elif character_id == "player" and progression["player"].get("class_name") == "МАГ":
+                mage_previews = {
+                    "Огненный шар": "Магический урон: +10% за ранг",
+                    "Пылающая волна": "Урон по всем врагам: +10% за ранг",
+                    "Клеймо пламени": f"Горение за ход: {4 + rank - 1} → {4 + next_rank - 1}; длительность +1 на III",
+                    "Метеоритный дождь": "Массовый урон: +10% за ранг",
+                    "Ледяная стрела": "Магический урон: +10% за ранг",
+                    "Ледяной шторм": "Урон по всем врагам: +10% за ранг",
+                    "Ледяные оковы": f"Оглушение: {1 + (1 if rank >= 3 else 0)} → {1 + (1 if next_rank >= 3 else 0)} хода",
+                    "Ледяная броня": f"Снижение урона: {35 + (rank - 1) * 5}% → {35 + (next_rank - 1) * 5}%",
+                    "Арканический разряд": "Магический урон: +10% за ранг",
+                    "Цепная молния": "Урон по всем врагам: +10% за ранг",
+                    "Похищение маны": f"Возврат MP: {12 + (rank - 1) * 5} → {12 + (next_rank - 1) * 5}",
+                    "Временной разлом": f"Задержка цели: {2200 + (rank - 1) * 600} → {2200 + (next_rank - 1) * 600} мс",
+                }
+                preview = mage_previews.get(name, "Усиление заклинания")
             elif character_id == "dinara" and name == "Атака скалкой":
                 current = (rank - 1) * 10
                 upcoming = (next_rank - 1) * 10
@@ -2659,6 +3450,11 @@ def main():
         return rows
 
     def profile_plus_rect(index):
+        if (profile_character == "player" and profile_tab == "skills"
+                and progression["player"].get("class_name") == "МАГ"):
+            column = index // 6
+            row = index % 6
+            return pygame.Rect(78 + 24 + column * 390 + 330, 48 + 184 + row * 41, 32, 32)
         return pygame.Rect(770, 178 + index * 48, 42, 38)
 
     def apply_profile_upgrade(index):
@@ -2759,18 +3555,37 @@ def main():
             rows = profile_skill_rows(profile_character)
             points = data["skill_points"]
             roman = {1: "I", 2: "II", 3: "III"}
+            mage_profile = (profile_character == "player"
+                            and progression["player"].get("class_name") == "МАГ")
             for index, (name, rank, description) in enumerate(rows):
-                y = panel.y + 184 + index * 48
-                name_surface = small_font.render(name, True, TEXT_COLOR)
-                rank_surface = small_font.render(f"{roman.get(rank, rank)}  →  {roman.get(min(3, rank + 1), rank + 1)}", True, GOLD if points > 0 and rank < 3 else MUTED_COLOR)
-                surface.blit(name_surface, (panel.x + 35, y + 3))
-                surface.blit(rank_surface, (panel.x + 320, y + 3))
-                description_lines = wrap_text(tooltip_font, description, 630)[:2]
-                for line_index, description_line in enumerate(description_lines):
-                    desc_surface = tooltip_font.render(description_line, True, MUTED_COLOR)
-                    surface.blit(desc_surface, (panel.x + 35, y + 25 + line_index * 15))
-                plus = profile_plus_rect(index)
-                plus.y = y
+                if mage_profile:
+                    column = index // 6
+                    row = index % 6
+                    x = panel.x + 24 + column * 390
+                    y = panel.y + 184 + row * 41
+                    school_label = "ОГОНЬ" if index < 4 else ("ЛЁД" if index < 8 else "АРКАНА")
+                    name_surface = tooltip_font.render(f"{school_label} · {name}", True, TEXT_COLOR)
+                    rank_surface = tooltip_font.render(
+                        f"{roman.get(rank, rank)} → {roman.get(min(3, rank + 1), rank + 1)}",
+                        True, GOLD if points > 0 and rank < 3 else MUTED_COLOR,
+                    )
+                    surface.blit(name_surface, (x, y + 2))
+                    surface.blit(rank_surface, (x, y + 20))
+                    desc_surface = tooltip_font.render(description[:25], True, MUTED_COLOR)
+                    surface.blit(desc_surface, (x + 58, y + 20))
+                    plus = profile_plus_rect(index)
+                else:
+                    y = panel.y + 184 + index * 48
+                    name_surface = small_font.render(name, True, TEXT_COLOR)
+                    rank_surface = small_font.render(f"{roman.get(rank, rank)}  →  {roman.get(min(3, rank + 1), rank + 1)}", True, GOLD if points > 0 and rank < 3 else MUTED_COLOR)
+                    surface.blit(name_surface, (panel.x + 35, y + 3))
+                    surface.blit(rank_surface, (panel.x + 320, y + 3))
+                    description_lines = wrap_text(tooltip_font, description, 630)[:2]
+                    for line_index, description_line in enumerate(description_lines):
+                        desc_surface = tooltip_font.render(description_line, True, MUTED_COLOR)
+                        surface.blit(desc_surface, (panel.x + 35, y + 25 + line_index * 15))
+                    plus = profile_plus_rect(index)
+                    plus.y = y
                 can_upgrade = points > 0 and rank < 3
                 pygame.draw.rect(surface, (55, 75, 58) if can_upgrade else (42, 46, 54), plus, border_radius=4)
                 pygame.draw.rect(surface, GOLD if can_upgrade else PANEL_INNER_BORDER, plus, 1, border_radius=4)
@@ -2790,8 +3605,10 @@ def main():
                 actor = battle_engine.actors[actor_id]
                 actor["hp"] = actor["max_hp"]
                 actor["alive"] = True
-                # Stamina persistence after battle is not yet finalized;
-                # keep the remaining amount rather than assume full recovery.
+                if actor_id == "player":
+                    actor["mp"] = actor["max_mp"]
+            battle_engine.potion_count = 1
+            # После победы зелье группы и MP магических классов восстановлены.
         battle_story_bodies_visible = False
         battle_phase = "complete"
         battle_ui_mode = "commands"
@@ -2807,6 +3624,50 @@ def main():
         stage = "kitchen_scene"
         print("[EVT005] Battle won; returned to free kitchen movement.")
 
+    def battle_menu_labels(mode=None):
+        mode = mode or battle_ui_mode
+        if mode == "commands":
+            return ["Атака", "Навыки", "Предметы", "Защита"]
+        if mode == "skills":
+            menus = {
+                "warrior": ["Базовая атака мечом", "Круговая атака", "Блок мечом", "Берсерк", "Назад"],
+                "rogue": ["Ядовитый клинок", "Веер клинков", "Прыжок в тень", "Удар по голове", "Назад"],
+                "paladin": ["Удар молотом", "Щит веры", "Святая молитва — цель", "Святая молитва — группа", "Гнев света", "Назад"],
+                "mage": ["Школа огня", "Школа льда", "Школа арканы", "Назад"],
+            }
+            return menus.get(battle_engine.player_class if battle_engine else "warrior", ["Назад"])
+        mage_school_menus = {
+            "mage_fire": ["Огненный шар", "Пылающая волна", "Клеймо пламени", "Метеоритный дождь", "Назад"],
+            "mage_ice": ["Ледяная стрела", "Ледяной шторм", "Ледяные оковы", "Ледяная броня", "Назад"],
+            "mage_arcane": ["Арканический разряд", "Цепная молния", "Похищение маны", "Временной разлом", "Назад"],
+        }
+        if mode in mage_school_menus:
+            return mage_school_menus[mode]
+        if mode == "target":
+            return [battle_engine.actors[aid]["name"] for aid in battle_engine.living("enemy")] + ["Назад"]
+        if mode == "ally_target":
+            return [battle_engine.actors[aid]["name"] for aid in battle_engine.living("ally")] + ["Назад"]
+        if mode == "items":
+            return ["Лечить героя", "Лечить Динару", "Назад"]
+        return ["Назад"]
+
+    def battle_menu_rects(mode=None):
+        mode = mode or battle_ui_mode
+        labels = battle_menu_labels(mode)
+        if mode == "commands":
+            return [pygame.Rect(12 + i * 212, HEIGHT - 70, 205, 55) for i in range(len(labels))]
+        if mode in ("skills", "mage_fire", "mage_ice", "mage_arcane"):
+            return [pygame.Rect(12 + (i % 3) * 315, HEIGHT - 122 + (i // 3) * 56, 300, 50) for i in range(len(labels))]
+        if mode == "target":
+            count = len(labels) - 1
+            row_rects = [pygame.Rect(650, 330 + i * 65, 260, 58) for i in range(count)]
+            return row_rects + [pygame.Rect(12, HEIGHT - 70, 205, 55)]
+        if mode == "ally_target":
+            count = len(labels) - 1
+            row_rects = [pygame.Rect(24, 330 + i * 65, 260, 58) for i in range(count)]
+            return row_rects + [pygame.Rect(12, HEIGHT - 70, 205, 55)]
+        return [pygame.Rect(12 + i * 207, HEIGHT - 70, 200, 55) for i in range(len(labels))]
+
     def draw_battle_hud(surface):
         if battle_engine is None:
             return
@@ -2814,11 +3675,19 @@ def main():
         pygame.draw.rect(surface, (12, 16, 29), hud, border_radius=6)
         pygame.draw.rect(surface, PANEL_OUTER_BORDER, hud, 1, border_radius=6)
         actor = battle_engine.get_actor("player")
-        lines = [f"HP: {actor['hp']}/{actor['max_hp']}",
-                 f"ST: {int(actor['stamina'])}/{actor['max_stamina']}"]
+        player_portrait = battle_portraits.get(battle_engine.player_class)
+        if player_portrait is not None:
+            player_portrait = fit_image(player_portrait, 40, 40)
+            surface.blit(player_portrait, (hud.x + 6, hud.y + 7))
+        resource_line = (
+            f"MP: {int(actor['mp'])}/{actor['max_mp']}"
+            if actor.get("max_mp", 0) > 0
+            else f"ST: {int(actor['stamina'])}/{actor['max_stamina']}"
+        )
+        lines = [f"HP: {actor['hp']}/{actor['max_hp']}", resource_line]
         for idx, line in enumerate(lines):
             rendered = small_font.render(line, True, TEXT_COLOR if idx == 0 else GOLD)
-            surface.blit(rendered, (hud.x + 12, hud.y + 7 + idx * 22))
+            surface.blit(rendered, (hud.x + 54, hud.y + 7 + idx * 22))
 
         potion_text = small_font.render(f"Зелье группы: {battle_engine.potion_count}", True, GOLD)
         surface.blit(potion_text, (hud.right + 16, hud.y + 16))
@@ -2828,51 +3697,98 @@ def main():
         queue_rect = pygame.Rect(620, 12, 328, 48)
         pygame.draw.rect(surface, (12, 16, 29), queue_rect, border_radius=5)
         pygame.draw.rect(surface, PANEL_INNER_BORDER, queue_rect, 1, border_radius=5)
-        labels = {"player": "ВОИН", "dinara": "ДИНАРА", "goblin_1": "Г1", "goblin_2": "Г2"}
+        player_label = {"warrior": "ВОИН", "rogue": "ПЛУТ", "paladin": "ПАЛАДИН", "mage": "МАГ"}.get(battle_engine.player_class, "ИГРОК")
+        labels = {"player": player_label, "dinara": "ДИНАРА", "goblin_1": "Г1", "goblin_2": "Г2"}
+        portrait_keys = {
+            "player": battle_engine.player_class, "dinara": "dinara",
+            "goblin_1": "goblin", "goblin_2": "goblin",
+        }
         x = queue_rect.x + 8
         for actor_id in queue_ids:
             label = labels[actor_id]
             selected = actor_id == battle_engine.current_actor_id
             rect = pygame.Rect(x, queue_rect.y + 8, 72 if actor_id in ("player", "dinara") else 42, 30)
             pygame.draw.rect(surface, (75, 66, 43) if selected else (35, 43, 59), rect, border_radius=4)
+            portrait_source = battle_portraits.get(portrait_keys[actor_id])
+            if portrait_source is not None:
+                mini = fit_image(portrait_source, 23, 23)
+                surface.blit(mini, (rect.x + 3, rect.centery - mini.get_height() // 2))
             text_s = tooltip_font.render(label, True, GOLD if selected else TEXT_COLOR)
-            surface.blit(text_s, text_s.get_rect(center=rect.center))
+            surface.blit(text_s, text_s.get_rect(center=(rect.centerx + 10, rect.centery)))
             x += rect.width + 4
 
         # Союзники слева, противники справа; HP отображается сердцами.
         def hearts(actor_id, center, label):
             combatant = battle_engine.actors[actor_id]
-            # Compact HP cards sit in the clear strip above the combat sprites.
-            rect = pygame.Rect(center[0] - 74, center[1] - 16, 148, 42)
-            pygame.draw.rect(surface, (12, 16, 29), rect, border_radius=4)
-            pygame.draw.rect(surface, PANEL_INNER_BORDER, rect, 1, border_radius=4)
+            rect = pygame.Rect(center[0] - 84, center[1] - 18, 168, 52)
+            pygame.draw.rect(surface, (12, 16, 29), rect, border_radius=5)
+            pygame.draw.rect(surface, PANEL_INNER_BORDER, rect, 1, border_radius=5)
+            portrait_key = {
+                "player": battle_engine.player_class, "dinara": "dinara",
+                "goblin_1": "goblin", "goblin_2": "goblin",
+            }[actor_id]
+            portrait_source = battle_portraits.get(portrait_key)
+            if portrait_source is not None:
+                card_portrait = fit_image(portrait_source, 38, 38)
+                surface.blit(card_portrait, (rect.x + 4, rect.y + 7))
             label_s = tooltip_font.render(label, True, GOLD if combatant["alive"] else MUTED_COLOR)
-            surface.blit(label_s, (rect.x + 7, rect.y + 4))
+            surface.blit(label_s, (rect.x + 46, rect.y + 5))
             hp_pct = combatant["hp"] / combatant["max_hp"] if combatant["max_hp"] else 0
             filled = max(0, min(5, int(math.ceil(hp_pct * 5))))
             for i in range(5):
                 color = (220, 65, 75) if i < filled else (85, 85, 92)
-                hx = rect.x + 18 + i * 19
-                hy = rect.y + 29
-                pygame.draw.circle(surface, color, (hx - 2, hy - 2), 3)
-                pygame.draw.circle(surface, color, (hx + 2, hy - 2), 3)
-                pygame.draw.polygon(surface, color, [(hx - 5, hy - 1), (hx + 5, hy - 1), (hx, hy + 5)])
+                hx = rect.x + 51 + i * 13
+                hy = rect.y + 35
+                pygame.draw.circle(surface, color, (hx - 2, hy - 2), 2)
+                pygame.draw.circle(surface, color, (hx + 2, hy - 2), 2)
+                pygame.draw.polygon(surface, color, [(hx - 4, hy - 1), (hx + 4, hy - 1), (hx, hy + 4)])
             hp_s = tooltip_font.render(f"{combatant['hp']}/{combatant['max_hp']}", True, TEXT_COLOR)
-            surface.blit(hp_s, (rect.right - hp_s.get_width() - 8, rect.y + 21))
-            status_text = []
-            if combatant["bleed_turns"]:
-                status_text.append(f"Кровотечение {combatant['bleed_turns']}")
-            if combatant["stun_turns"]:
-                status_text.append(f"Стан {combatant['stun_turns']}")
-            if combatant["stun_immunity_turns"]:
-                status_text.append(f"Иммунитет {combatant['stun_immunity_turns']}")
-            if status_text:
-                status_s = tooltip_font.render(", ".join(status_text), True, (245, 190, 110))
-                surface.blit(status_s, (rect.x + 7, rect.bottom + 2))
+            surface.blit(hp_s, (rect.right - hp_s.get_width() - 5, rect.y + 27))
+            status_entries = []
+            if combatant.get("burn_turns", 0):
+                status_entries.append(("burn", combatant["burn_turns"], "Горение"))
+            if combatant.get("poison_turns", 0):
+                status_entries.append(("poison", combatant["poison_turns"], "Яд"))
+            if combatant.get("bleed_turns", 0):
+                status_entries.append(("bleed", combatant["bleed_turns"], "Кровотечение"))
+            if combatant.get("stun_turns", 0):
+                status_entries.append(("stun", combatant["stun_turns"], "Оглушение"))
+            if combatant.get("stun_immunity_turns", 0):
+                status_entries.append(("shield", combatant["stun_immunity_turns"], "Иммунитет к оглушению"))
+            if combatant.get("hidden_turns", 0):
+                status_entries.append(("hidden", combatant["hidden_turns"], "Скрытность"))
+            if combatant.get("faith_shield_hits_left", 0):
+                shield_label = combatant.get("shield_label", "Защита")
+                shield_icon_key = "faith_shield" if shield_label == "Щит веры" else "shield"
+                status_entries.append((shield_icon_key, combatant["faith_shield_hits_left"], shield_label))
+            taunt_left = battle_engine.taunt_turns_by_enemy.get(actor_id, 0)
+            if taunt_left:
+                status_entries.append(("taunt", taunt_left, "Провокация"))
+
+            icon_mouse = pygame.mouse.get_pos()
+            for badge_index, (status_key, count, status_label) in enumerate(status_entries[:7]):
+                cell = BATTLE_STATUS_ICON_CELLS.get(status_key)
+                if cell is None:
+                    continue
+                icon_source = visual_assets["status_icons"].get(status_key)
+                if icon_source is None:
+                    continue
+                status_icon = fit_image(icon_source, 16, 16)
+                icon_rect = pygame.Rect(rect.x + 5 + badge_index * 21, rect.bottom + 2, 16, 16)
+                surface.blit(status_icon, icon_rect)
+                count_s = tooltip_font.render(str(count), True, TEXT_COLOR)
+                surface.blit(count_s, (icon_rect.right - count_s.get_width() + 1, icon_rect.bottom - 8))
+                if icon_rect.collidepoint(icon_mouse):
+                    tip = small_font.render(f"{status_label}: {count}", True, TEXT_COLOR)
+                    tip_rect = tip.get_rect(topleft=(icon_rect.x, icon_rect.bottom + 1)).inflate(10, 6)
+                    pygame.draw.rect(surface, (12, 16, 29), tip_rect, border_radius=3)
+                    pygame.draw.rect(surface, PANEL_OUTER_BORDER, tip_rect, 1, border_radius=3)
+                    surface.blit(tip, tip.get_rect(center=tip_rect.center))
+
 
         # Four compact cards are aligned above their corresponding actors.
         # This keeps HP labels clear of the character sprites.
-        hearts("player", (185, 94), "ВОИН")
+        hearts("player", (185, 94), player_label)
         hearts("dinara", (375, 94), "ДИНАРА")
         hearts("goblin_1", (660, 94), "ГОБЛИН 1")
         hearts("goblin_2", (840, 94), "ГОБЛИН 2")
@@ -2885,28 +3801,41 @@ def main():
             pygame.draw.rect(surface, PANEL_OUTER_BORDER, frame_rect, 1, border_radius=4)
             surface.blit(msg, msg_rect)
 
-        # Боевые команды доступны только в ход главного героя.
+        # Dynamic class-specific command and skill menu.
         current = battle_engine.current_actor_id
         if current == "player" and battle_engine.result is None:
-            commands = ["Атака", "Навыки", "Предметы", "Защита"]
-            skill_labels = ["Круговая атака", "Берсерк", "Назад"]
-            if battle_ui_mode == "skills":
-                commands = skill_labels
-            elif battle_ui_mode == "target":
-                commands = ["Назад"]
-            elif battle_ui_mode == "items":
-                commands = ["Лечить Воина", "Лечить Динару", "Назад"]
-            for i, label in enumerate(commands):
-                cols = 4 if len(commands) == 4 else (1 if battle_ui_mode == "target" else 3)
-                width = 205 if cols == 4 or battle_ui_mode == "target" else 200
-                x = 12 + (i % cols) * (width + 7)
-                y = HEIGHT - 70 + (i // cols) * 0
-                rect = pygame.Rect(x, y, width, 55)
+            labels = battle_menu_labels()
+            rects = battle_menu_rects()
+            for i, (label, rect) in enumerate(zip(labels, rects)):
                 pygame.draw.rect(surface, (37, 46, 62), rect, border_radius=5)
-                pygame.draw.rect(surface, GOLD if i == battle_selected_command else PANEL_INNER_BORDER, rect, 2 if i == battle_selected_command else 1, border_radius=5)
-                label_s = tooltip_font.render(label, True, TEXT_COLOR)
-                surface.blit(label_s, label_s.get_rect(center=rect.center))
-
+                selected = i == battle_selected_command
+                pygame.draw.rect(surface, GOLD if selected else PANEL_INNER_BORDER,
+                                 rect, 2 if selected else 1, border_radius=5)
+                icon_cell = BATTLE_MENU_ICON_CELLS.get(label)
+                custom_icon = visual_assets["menu_custom_icons"].get(label)
+                if icon_cell is not None or custom_icon is not None:
+                    if icon_cell is not None:
+                        icon_column, icon_row = icon_cell
+                        icon_source = visual_assets["skill_icons"][icon_row][icon_column]
+                        menu_icon = fit_image(icon_source, 30, 30)
+                    else:
+                        menu_icon = custom_icon
+                    surface.blit(menu_icon, (rect.x + 8, rect.centery - menu_icon.get_height() // 2))
+                    label_s = tooltip_font.render(label, True, TEXT_COLOR)
+                    surface.blit(label_s, label_s.get_rect(center=(rect.centerx + 14, rect.centery)))
+                else:
+                    label_s = tooltip_font.render(label, True, TEXT_COLOR)
+                    surface.blit(label_s, label_s.get_rect(center=rect.center))
+        if battle_ui_mode == "target":
+            for i, (label, rect) in enumerate(zip(battle_menu_labels(), battle_menu_rects())):
+                if i == len(battle_menu_labels()) - 1:
+                    continue
+                pygame.draw.rect(surface, (18, 24, 37), rect, border_radius=4)
+                hovered = rect.collidepoint(pygame.mouse.get_pos())
+                pygame.draw.rect(surface, GOLD if hovered else PANEL_INNER_BORDER, rect,
+                                 2 if hovered else 1, border_radius=4)
+                text_s = small_font.render(f"{i + 1}. {label}", True, TEXT_COLOR)
+                surface.blit(text_s, text_s.get_rect(center=rect.center))
     def begin_defeat_choices():
         nonlocal stage
         stage = "defeat_choices"
@@ -2917,15 +3846,50 @@ def main():
         # integration point to replace with the host checkpoint callback.
         reset_scene()
 
+    def set_battle_effect(effect_key, targets):
+        spec = BATTLE_EFFECT_SPECS.get(effect_key)
+        if spec is None:
+            return
+        atlas_key, atlas_row = spec
+        target_ids = [target for target in targets if target in ("player", "dinara", "goblin_1", "goblin_2")]
+        if not target_ids:
+            return
+        duration = BATTLE_VFX_DURATION
+        battle_spell_flash.update({
+            "type": atlas_key,
+            "row": atlas_row,
+            "effect_key": effect_key,
+            "targets": target_ids,
+            "timer": duration,
+            "duration": duration,
+            "spell": effect_key,
+        })
+
     def handle_battle_command(command_index):
         nonlocal battle_ui_mode, battle_selected_command, battle_message, battle_message_timer
-        nonlocal battle_selected_target, battle_selected_target_timer
+        nonlocal battle_selected_target, battle_selected_target_timer, battle_pending_action
         if battle_engine is None or battle_engine.current_actor_id != "player":
             return
+        player_class = battle_engine.player_class
+
+        def show_result(success, success_text, fail_text="Недостаточно ресурса для способности."):
+            nonlocal battle_ui_mode, battle_selected_command, battle_message, battle_message_timer
+            nonlocal battle_pending_action
+            if success:
+                battle_ui_mode = "commands"
+                battle_selected_command = 0
+                battle_pending_action = None
+                battle_message = success_text
+                battle_message_timer = 1.45
+            else:
+                battle_message = fail_text
+                battle_message_timer = 1.25
+
         if battle_ui_mode == "commands":
             if command_index == 0:
+                battle_pending_action = "basic"
                 battle_ui_mode = "target"
-                battle_selected_target_index = 0
+                battle_selected_command = 0
             elif command_index == 1:
                 battle_ui_mode = "skills"
                 battle_selected_command = 0
@@ -2933,57 +3897,216 @@ def main():
                 battle_ui_mode = "items"
                 battle_selected_command = 0
             elif command_index == 3:
-                if battle_engine.player_sword_block():
-                    battle_ui_mode = "commands"
-                    battle_selected_command = 0
-                    battle_message = "Блок мечом: физический урон снижен."
-                    battle_message_timer = 1.2
+                if player_class == "warrior":
+                    show_result(battle_engine.player_defend(), "Воин занимает защитную позицию.", "Не удалось занять защитную позицию.")
                 else:
-                    battle_message = "Недостаточно выносливости для блока мечом."
-                    battle_message_timer = 1.2
+                    show_result(battle_engine.player_defend(), "Персонаж занимает защитную позицию.")
         elif battle_ui_mode == "skills":
-            if command_index == 0:
-                if battle_engine.player_circle_attack():
+            if player_class == "mage":
+                if command_index == 0:
+                    battle_ui_mode = "mage_fire"
+                    battle_selected_command = 0
+                elif command_index == 1:
+                    battle_ui_mode = "mage_ice"
+                    battle_selected_command = 0
+                elif command_index == 2:
+                    battle_ui_mode = "mage_arcane"
+                    battle_selected_command = 0
+                else:
                     battle_ui_mode = "commands"
                     battle_selected_command = 0
-                    battle_message = "Воин выполняет круговую атаку!"
-                    battle_message_timer = 1.2
+            elif player_class == "warrior":
+                if command_index == 0:
+                    battle_pending_action = "basic"
+                    battle_ui_mode = "target"
+                    battle_selected_command = 0
+                elif command_index == 1:
+                    success = battle_engine.player_circle_attack()
+                    event = battle_engine.last_action_event or {}
+                    if success:
+                        set_battle_effect("circle_attack", [hit.get("target") for hit in event.get("hits", [])])
+                    show_result(success, "Воин выполняет круговую атаку!")
+                elif command_index == 2:
+                    success = battle_engine.player_sword_block()
+                    if success:
+                        set_battle_effect("sword_block", ["player"])
+                    show_result(success, "Блок мечом: физический урон снижен.", "Недостаточно выносливости для блока мечом.")
+                elif command_index == 3:
+                    success = battle_engine.player_berserk()
+                    if success:
+                        set_battle_effect("berserk", ["player"])
+                    show_result(success, "БЕРСЕРК! Урон и критические показатели усилены.", "Берсерк доступен при HP не выше 25% и достаточной Stamina.")
                 else:
-                    battle_message = "Недостаточно выносливости."
-                    battle_message_timer = 1.2
-            elif command_index == 1:
-                if battle_engine.player_berserk():
                     battle_ui_mode = "commands"
                     battle_selected_command = 0
-                    battle_message = "БЕРСЕРК! Урон и критические показатели усилены."
-                    battle_message_timer = 1.5
+            elif player_class == "rogue":
+                if command_index == 0:
+                    battle_pending_action = "venom"
+                    battle_ui_mode = "target"
+                    battle_selected_command = 0
+                elif command_index == 1:
+                    success = battle_engine.player_fan_blades()
+                    event = battle_engine.last_action_event or {}
+                    if success:
+                        set_battle_effect("fan_blades", [hit.get("target") for hit in event.get("hits", [])])
+                    show_result(success, "Разбойник выпускает веер отравленных клинков.", "Недостаточно Stamina для Веера клинков.")
+                elif command_index == 2:
+                    success = battle_engine.player_shadow_jump()
+                    if success:
+                        set_battle_effect("shadow_jump", ["player"])
+                    show_result(success, "Разбойник исчезает в тени.", "Недостаточно Stamina для Прыжка в тень.")
+                elif command_index == 3:
+                    battle_pending_action = "head_strike"
+                    battle_ui_mode = "target"
+                    battle_selected_command = 0
                 else:
-                    battle_message = "Берсерк доступен при HP не выше 25% и достаточной Stamina."
-                    battle_message_timer = 1.5
-            elif command_index == 2:
-                battle_ui_mode = "commands"
+                    battle_ui_mode = "commands"
+                    battle_selected_command = 0
+            elif player_class == "paladin":
+                if command_index == 0:
+                    battle_pending_action = "basic"
+                    battle_ui_mode = "target"
+                    battle_selected_command = 0
+                elif command_index == 1:
+                    success = battle_engine.player_faith_shield()
+                    if success:
+                        set_battle_effect("faith_shield", ["player"])
+                    show_result(
+                        success,
+                        "Щит веры активирован: физический и магический урон снижен.",
+                        "Недостаточно MP для Щита веры."
+                    )
+                elif command_index == 2:
+                    battle_pending_action = "paladin_heal_single"
+                    battle_ui_mode = "ally_target"
+                    battle_selected_command = 0
+                elif command_index == 3:
+                    success = battle_engine.player_holy_prayer(group=True)
+                    event = battle_engine.last_action_event or {}
+                    if success:
+                        set_battle_effect("holy_prayer", [item.get("target") for item in event.get("healing", [])])
+                    total = sum(item["amount"] for item in event.get("healing", []))
+                    show_result(success, f"Святая молитва исцеляет группу: +{total} HP.", "Недостаточно MP или союзникам не требуется лечение.")
+                elif command_index == 4:
+                    success = battle_engine.player_wrath_of_light()
+                    event = battle_engine.last_action_event or {}
+                    if success:
+                        set_battle_effect("wrath_of_light", event.get("targets", []))
+                    show_result(success, "Гнев света! Гоблины вынуждены атаковать Паладина.", "Недостаточно MP для Гнева света.")
+                else:
+                    battle_ui_mode = "commands"
+                    battle_selected_command = 0
+        elif battle_ui_mode in ("mage_fire", "mage_ice", "mage_arcane"):
+            spell_groups = {
+                "mage_fire": ["fireball", "flame_wave", "burning_mark", "meteor_rain"],
+                "mage_ice": ["ice_shard", "frost_storm", "ice_chains", "ice_armor"],
+                "mage_arcane": ["arcane_bolt", "chain_lightning", "mana_siphon", "time_rift"],
+            }
+            spell_order = spell_groups[battle_ui_mode]
+            if command_index >= len(spell_order):
+                battle_ui_mode = "skills"
                 battle_selected_command = 0
+            else:
+                spell_key = spell_order[command_index]
+                if spell_key in ("fireball", "burning_mark", "ice_shard", "ice_chains",
+                                 "arcane_bolt", "mana_siphon", "time_rift"):
+                    battle_pending_action = spell_key
+                    battle_ui_mode = "target"
+                    battle_selected_command = 0
+                else:
+                    success = battle_engine.player_mage_spell(spell_key)
+                    event = battle_engine.last_action_event or {}
+                    if success and event.get("kind") == "mage_spell":
+                        effect_targets = [hit.get("target") for hit in event.get("hits", [])]
+                        set_battle_effect(spell_key, effect_targets or ["player"])
+                    total = sum(hit.get("damage", 0) for hit in event.get("hits", []))
+                    detail = f"Общий урон: {total}." if event.get("hits") else "Защита активирована."
+                    show_result(
+                        success, f"{event.get('spell_name', 'Заклинание')}! {detail}",
+                        "Недостаточно MP для выбранного заклинания."
+                    )
         elif battle_ui_mode == "target":
             enemy_ids = battle_engine.living("enemy")
             if command_index < len(enemy_ids):
                 target_id = enemy_ids[command_index]
-                # Keep the chosen target visibly marked while the hit feedback is shown.
                 battle_selected_target = target_id
                 battle_selected_target_timer = 1.4
-                battle_engine.player_attack(target_id)
-                battle_ui_mode = "commands"
-                battle_selected_command = 0
-                event = battle_engine.last_action_event or {}
-                if event.get("dodged"):
-                    battle_message = f"{battle_engine.actors[target_id]['name']} уклоняется!"
-                elif battle_engine.actors[target_id]["alive"]:
-                    battle_message = random.choice(GOBLIN_HIT_LINES) + f" ({event.get('damage', 0)} урона)"
+                action = battle_pending_action or "basic"
+                if action == "head_strike":
+                    success = battle_engine.player_head_strike(target_id)
+                elif action == "venom":
+                    success = battle_engine.player_venom_blade(target_id)
+                elif action in ("fireball", "burning_mark", "ice_shard", "ice_chains",
+                                "arcane_bolt", "mana_siphon", "time_rift"):
+                    success = battle_engine.player_mage_spell(action, target_id=target_id)
                 else:
-                    battle_message = "Гоблин повержен!"
-                battle_message_timer = 1.4
+                    success = battle_engine.player_attack(target_id)
+                if success:
+                    event = battle_engine.last_action_event or {}
+                    effect_key = action
+                    if action == "basic":
+                        effect_key = {
+                            "warrior": "warrior_strike",
+                            "paladin": "hammer_strike",
+                            "mage": "staff_strike",
+                            "rogue": "venom",
+                        }.get(player_class)
+                    if effect_key in BATTLE_EFFECT_SPECS:
+                        set_battle_effect(effect_key, [target_id])
+                    if event.get("kind") == "mage_spell":
+                        hit = next((item for item in event.get("hits", [])
+                                    if item.get("target") == target_id), {})
+                        extras = []
+                        if hit.get("burn"):
+                            extras.append("горит")
+                        if hit.get("stunned"):
+                            extras.append("заморожен")
+                        if hit.get("mp_restored"):
+                            extras.append(f"+{hit['mp_restored']} MP")
+                        if hit.get("delay"):
+                            extras.append("ход отложен")
+                        suffix = ("; " + ", ".join(extras)) if extras else ""
+                        battle_message = f"{event.get('spell_name', 'Заклинание')}: {event.get('hits', [{}])[0].get('damage', 0)} урона{suffix}."
+                    elif event.get("dodged"):
+                        battle_message = f"{battle_engine.actors[target_id]['name']} уклоняется!"
+                    elif event.get("stunned"):
+                        battle_message = f"Удар по голове! {battle_engine.actors[target_id]['name']} оглушён."
+                    elif event.get("poison"):
+                        battle_message = f"Ядовитый удар! {battle_engine.actors[target_id]['name']} отравлен."
+                    elif battle_engine.actors[target_id]["alive"]:
+                        battle_message = f"{battle_engine.actors[target_id]['name']}: {event.get('damage', 0)} урона."
+                    else:
+                        battle_message = f"{battle_engine.actors[target_id]['name']} повержен!"
+                    battle_message_timer = 1.4
+                    battle_ui_mode = "commands"
+                    battle_selected_command = 0
+                    battle_pending_action = None
+                else:
+                    battle_message = "Действие недоступно: проверьте ресурс или цель."
+                    battle_message_timer = 1.3
             else:
                 battle_ui_mode = "commands"
                 battle_selected_command = 0
+                battle_pending_action = None
+        elif battle_ui_mode == "ally_target":
+            ally_ids = battle_engine.living("ally")
+            if command_index < len(ally_ids):
+                target_id = ally_ids[command_index]
+                success = battle_engine.player_holy_prayer(target_id=target_id, group=False)
+                event = battle_engine.last_action_event or {}
+                if success:
+                    set_battle_effect("holy_prayer", [target_id])
+                healed = next((item["amount"] for item in event.get("healing", [])
+                               if item["target"] == target_id), 0)
+                show_result(
+                    success,
+                    f"Святая молитва восстанавливает {healed} HP персонажу {battle_engine.actors[target_id]['name']}.",
+                    "Недостаточно MP или выбранный союзник не нуждается в лечении."
+                )
+            else:
+                battle_ui_mode = "commands"
+                battle_selected_command = 0
+                battle_pending_action = None
         elif battle_ui_mode == "items":
             if command_index == 0:
                 target_id = "player"
@@ -2994,17 +4117,13 @@ def main():
                 battle_selected_command = 0
                 return
             if battle_engine.use_potion(target_id):
-                battle_ui_mode = "commands"
-                battle_selected_command = 0
                 event = battle_engine.last_action_event or {}
-                battle_message = f"Восстановлено {event.get('amount', 0)} HP."
-                battle_message_timer = 1.2
+                show_result(True, f"Восстановлено {event.get('amount', 0)} HP.")
             else:
                 battle_message = "Зелье недоступно или цель не нуждается в лечении."
                 battle_message_timer = 1.2
         if battle_engine.result:
             finish_battle(battle_engine.result)
-
     # --------------------------------------------------------
     # Сценарий кухни: запросы и реакции Динары
     # --------------------------------------------------------
@@ -3445,6 +4564,7 @@ def main():
         nonlocal kitchen_dialogue_next_action
 
         selected_class_data = CLASSES[selected_class]
+        ensure_player_class_progression(selected_class_data["name"])
 
         # Полный сброс состояния кухни перед первым входом.
         kitchen_player_x = float(KITCHEN_PLAYER_FOOT[0])
@@ -3655,7 +4775,7 @@ def main():
         nonlocal kitchen_dialogue_next_action
         nonlocal battle_engine, battle_phase, battle_turn_owner, battle_round
         nonlocal battle_selected_target, battle_ai_elapsed, battle_message
-        nonlocal battle_selected_target_timer
+        nonlocal battle_selected_target_timer, battle_pending_action
         nonlocal battle_message_timer, battle_ui_mode, battle_selected_command
         nonlocal battle_story_goblins_visible, battle_story_bodies_visible
         nonlocal battle_triggered, story_nodes, story_index, story_elapsed
@@ -3720,6 +4840,11 @@ def main():
         battle_round = 0
         battle_selected_target = None
         battle_selected_target_timer = 0.0
+        battle_pending_action = None
+        battle_spell_flash.update({
+            "type": None, "row": 0, "effect_key": None, "targets": [],
+            "timer": 0.0, "duration": 0.0, "spell": "",
+        })
         battle_ai_elapsed = 0.0
         battle_message = ""
         battle_message_timer = 0.0
@@ -3739,6 +4864,7 @@ def main():
         progression["player"].update({"level": 1, "exp": 0, "next_exp": PROGRESSION_BALANCE["exp_to_first_level"], "stat_points": 0, "skill_points": 0})
         progression["player"]["stats"] = {"Сила": 12, "Здоровье": 120, "Ловкость": 10, "Стойкость": 10, "Выносливость": 100}
         progression["player"]["skills"] = {"Базовая атака мечом": 1, "Круговая атака": 1, "Блок мечом": 1, "Берсерк": 1}
+        progression["player"]["class_name"] = "ВОИН"
         progression["dinara"].update({"level": 1, "exp": 0, "next_exp": PROGRESSION_BALANCE["exp_to_first_level"], "stat_points": 0, "skill_points": 0})
         progression["dinara"]["stats"] = {"Здоровье": 100, "Сила": 10, "Ловкость": 11, "Стойкость": 8}
         progression["dinara"]["skills"] = {"Атака скалкой": 1}
@@ -3852,15 +4978,23 @@ def main():
                 battle_selected_target_timer = max(0.0, battle_selected_target_timer - dt)
                 if battle_selected_target_timer <= 0.0:
                     battle_selected_target = None
+            if battle_spell_flash["timer"] > 0.0:
+                battle_spell_flash["timer"] = max(0.0, battle_spell_flash["timer"] - dt)
             current = battle_engine.current_actor_id if battle_engine else None
             if current in ("dinara", "goblin_1", "goblin_2"):
                 battle_ai_elapsed += dt
                 if battle_ai_elapsed >= 0.55:
                     battle_ai_elapsed = 0.0
                     actor_before = current
+                    # Clear the previous actor's event first; a no-op AI turn
+                    # must not replay an old attack animation.
+                    battle_engine.last_action_event = None
                     battle_engine.resolve_current_ai()
                     battle_turn_owner = battle_engine.current_actor_id
                     action_event = battle_engine.last_action_event or {}
+                    ai_visual = battle_ai_effect_for_event(actor_before, action_event)
+                    if ai_visual is not None:
+                        set_battle_effect(ai_visual[0], ai_visual[1])
                     battle_message = ""
                     if actor_before in ("goblin_1", "goblin_2"):
                         if action_event.get("kind") == "attack":
@@ -3959,17 +5093,13 @@ def main():
                         if event.key in (pygame.K_1, pygame.K_2, pygame.K_3, pygame.K_4):
                             handle_battle_command(event.key - pygame.K_1)
                         elif event.key == pygame.K_BACKSPACE:
-                            battle_ui_mode = "commands"
+                            if battle_ui_mode in ("mage_fire", "mage_ice", "mage_arcane"):
+                                battle_ui_mode = "skills"
+                            else:
+                                battle_ui_mode = "commands"
                             battle_selected_command = 0
                         elif event.key in (pygame.K_LEFT, pygame.K_UP, pygame.K_RIGHT, pygame.K_DOWN):
-                            if battle_ui_mode == "commands":
-                                maximum = 3
-                            elif battle_ui_mode == "skills":
-                                maximum = 2
-                            elif battle_ui_mode == "items":
-                                maximum = 2
-                            else:
-                                maximum = max(0, len(battle_engine.living("enemy")) - 1)
+                            maximum = max(0, len(battle_menu_labels()) - 1)
                             if event.key in (pygame.K_LEFT, pygame.K_UP):
                                 battle_selected_command = (battle_selected_command - 1) % (maximum + 1)
                             else:
@@ -4141,7 +5271,9 @@ def main():
                         current_rows = profile_stat_rows(profile_character) if profile_tab == "stats" else profile_skill_rows(profile_character)
                         for profile_i in range(len(current_rows)):
                             plus_rect = profile_plus_rect(profile_i)
-                            plus_rect.y = panel.y + 184 + profile_i * 48
+                            if not (profile_character == "player" and profile_tab == "skills"
+                                    and progression["player"].get("class_name") == "МАГ"):
+                                plus_rect.y = panel.y + 184 + profile_i * 48
                             if plus_rect.collidepoint(event.pos):
                                 apply_profile_upgrade(profile_i)
                                 break
@@ -4160,21 +5292,8 @@ def main():
 
                 if stage == "battle":
                     if battle_engine and battle_engine.current_actor_id == "player":
-                        if battle_ui_mode == "commands":
-                            for command_i in range(4):
-                                rect = pygame.Rect(12 + command_i * 212, HEIGHT - 70, 205, 55)
-                                if rect.collidepoint(event.pos):
-                                    handle_battle_command(command_i)
-                                    break
-                        elif battle_ui_mode == "skills":
-                            for skill_i in range(3):
-                                rect = pygame.Rect(12 + skill_i * 207, HEIGHT - 70, 200, 55)
-                                if rect.collidepoint(event.pos):
-                                    handle_battle_command(skill_i)
-                                    break
-                        elif battle_ui_mode == "target":
-                            # First try the visible enemy sprite itself. The same hitboxes
-                            # drive both hover highlighting and left-click target selection.
+                        clicked_index = None
+                        if battle_ui_mode == "target":
                             enemy_slots = ((690, 390), (845, 390))
                             living_enemy_ids = battle_engine.living("enemy")
                             enemy_hitboxes = []
@@ -4183,30 +5302,18 @@ def main():
                                     continue
                                 sprite_rect = goblin_base_image.get_rect(midbottom=enemy_slots[enemy_index])
                                 hit_rect = sprite_rect.inflate(10, 10)
-                                enemy_hitboxes.append((
-                                    enemy_id,
-                                    (hit_rect.left, hit_rect.top, hit_rect.right, hit_rect.bottom),
-                                ))
+                                enemy_hitboxes.append((enemy_id, (hit_rect.left, hit_rect.top, hit_rect.right, hit_rect.bottom)))
                             clicked_target_id = _evt005_hit_test_enemy(event.pos, enemy_hitboxes)
                             if clicked_target_id is not None:
-                                handle_battle_command(living_enemy_ids.index(clicked_target_id))
-                            else:
-                                # Keep the on-screen target rows as an alternative click area.
-                                for target_i, target_id in enumerate(living_enemy_ids):
-                                    rect = pygame.Rect(650, 330 + target_i * 65, 260, 58)
-                                    if rect.collidepoint(event.pos):
-                                        handle_battle_command(target_i)
-                                        break
-                            if pygame.Rect(12, HEIGHT - 70, 205, 55).collidepoint(event.pos):
-                                handle_battle_command(2)
-                        elif battle_ui_mode == "items":
-                            for item_i in range(3):
-                                rect = pygame.Rect(12 + item_i * 207, HEIGHT - 70, 200, 55)
+                                clicked_index = living_enemy_ids.index(clicked_target_id)
+                        if clicked_index is None:
+                            for menu_i, rect in enumerate(battle_menu_rects()):
                                 if rect.collidepoint(event.pos):
-                                    handle_battle_command(item_i)
+                                    clicked_index = menu_i
                                     break
+                        if clicked_index is not None:
+                            handle_battle_command(clicked_index)
                     continue
-
                 if stage == "defeat_choices":
                     if pygame.Rect(135, 300, 320, 60).collidepoint(event.pos):
                         running = False
@@ -4789,7 +5896,14 @@ def main():
             if battle_engine is not None:
                 player_actor = battle_engine.actors["player"]
                 dinara_actor = battle_engine.actors["dinara"]
-                draw_ground_character(frame, kitchen_class_images[selected_class], 190, 390)
+                player_battle_image = kitchen_class_images[selected_class]
+                if player_actor.get("hidden_turns", 0) > 0 and player_battle_image is not None:
+                    faded_player = player_battle_image.copy()
+                    faded_player.set_alpha(105)
+                    faded_rect = faded_player.get_rect(midbottom=(190, 390))
+                    frame.blit(faded_player, faded_rect)
+                else:
+                    draw_ground_character(frame, player_battle_image, 190, 390)
                 draw_ground_character(frame, kitchen_dinara_image, 375, 390)
                 enemy_slots = ((690, 390), (845, 390))
                 # Build hitboxes from the actual on-screen goblin sprites.
@@ -4842,6 +5956,28 @@ def main():
                     if enemy["alive"]:
                         draw_ground_character(frame, goblin_base_image, *enemy_slots[enemy_index])
 
+                if battle_spell_flash["timer"] > 0.0:
+                    atlas_key = battle_spell_flash.get("type")
+                    atlas_row = int(battle_spell_flash.get("row", 0))
+                    effect_atlas = visual_assets["effects"].get(atlas_key)
+                    if effect_atlas is not None and 0 <= atlas_row < len(effect_atlas):
+                        duration = max(0.01, float(battle_spell_flash.get("duration", BATTLE_VFX_DURATION)))
+                        progress = max(0.0, min(0.999, 1.0 - battle_spell_flash["timer"] / duration))
+                        animation_frame = min(BATTLE_VFX_FRAME_COUNT - 1, int(progress * BATTLE_VFX_FRAME_COUNT))
+                        effect_source = effect_atlas[atlas_row][animation_frame]
+                        effect_sprite = fit_image(effect_source, 154, 132)
+                        fade = max(0.35, min(1.0, battle_spell_flash["timer"] / BATTLE_VFX_FADE_SECONDS))
+                        effect_sprite.set_alpha(int(255 * fade))
+                        effect_positions = {
+                            "player": (190, 300), "dinara": (375, 300),
+                            "goblin_1": (690, 282), "goblin_2": (845, 282),
+                        }
+                        for effect_target in battle_spell_flash["targets"]:
+                            effect_center = effect_positions.get(effect_target)
+                            if effect_center is None:
+                                continue
+                            effect_rect = effect_sprite.get_rect(center=effect_center)
+                            frame.blit(effect_sprite, effect_rect)
 
                 draw_battle_hud(frame)
                 if battle_ui_mode == "target":
@@ -4858,9 +5994,19 @@ def main():
                         )
                         label = small_font.render(f"{target_i + 1}. {battle_engine.actors[target_id]['name']} — выбрать цель", True, TEXT_COLOR)
                         frame.blit(label, label.get_rect(center=rect.center))
-                if battle_ui_mode == "skills":
-                    note = small_font.render("Круговая атака / Берсерк (доступен при HP ≤ 25%) / Назад", True, GOLD)
-                    frame.blit(note, (18, HEIGHT - 94))
+                if battle_ui_mode == "skills" and battle_engine.player_class != "mage":
+                    note = small_font.render("Выберите способность класса. Улучшения ранга действуют в бою.", True, GOLD)
+                    frame.blit(note, (18, HEIGHT - 153))
+                elif battle_ui_mode == "skills" and battle_engine.player_class == "mage":
+                    note = small_font.render("Выберите одну из трёх школ магии", True, GOLD)
+                    frame.blit(note, (18, HEIGHT - 153))
+                elif battle_ui_mode in ("mage_fire", "mage_ice", "mage_arcane"):
+                    school_names = {"mage_fire": "Школа огня", "mage_ice": "Школа льда", "mage_arcane": "Школа арканы"}
+                    note = small_font.render(f"{school_names[battle_ui_mode]} — выберите заклинание", True, GOLD)
+                    frame.blit(note, (18, HEIGHT - 153))
+                elif battle_ui_mode == "ally_target":
+                    note = small_font.render("Выберите союзника для Святой молитвы", True, GOLD)
+                    frame.blit(note, (300, HEIGHT - 94))
                 elif battle_ui_mode == "items":
                     note = small_font.render("Выберите союзника для лечебного зелья", True, GOLD)
                     frame.blit(note, (18, HEIGHT - 94))
@@ -5304,6 +6450,10 @@ def main():
 
 
 if __name__ == "__main__":
+    if "--assets-self-test" in sys.argv:
+        _evt005_visual_asset_self_test()
+        print("EVT005 visual atlas self-test: OK")
+        raise SystemExit(0)
     if "--combat-self-test" in sys.argv:
         _evt005_battle_self_test()
         print("EVT005 combat self-test: OK")
