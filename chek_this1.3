@@ -107,10 +107,10 @@ BATTLE_EFFECT_SPECS = {
 
 # Быстрое воспроизведение 4-кадровых боевых эффектов.
 # 85 мс на кадр вместо прежних ~170 мс: анимация ускорена примерно вдвое.
-BATTLE_VFX_FRAME_SECONDS = 0.085
+BATTLE_VFX_FRAME_SECONDS = 0.040
 BATTLE_VFX_FRAME_COUNT = 4
 BATTLE_VFX_DURATION = BATTLE_VFX_FRAME_SECONDS * BATTLE_VFX_FRAME_COUNT
-BATTLE_VFX_FADE_SECONDS = 0.10
+BATTLE_VFX_FADE_SECONDS = 0.05
 
 
 def battle_ai_effect_for_event(actor_id, action_event):
@@ -2614,9 +2614,9 @@ def _evt005_visual_asset_self_test():
         assert all(len(grid) == 4 and all(len(row) == 4 for row in grid)
                    for grid in assets["effects"].values())
         assert BATTLE_VFX_FRAME_COUNT == 4
-        assert abs(BATTLE_VFX_FRAME_SECONDS - 0.085) < 1e-9
+        assert abs(BATTLE_VFX_FRAME_SECONDS - 0.040) < 1e-9
         assert 0.33 <= BATTLE_VFX_DURATION <= 0.35
-        assert abs(BATTLE_VFX_FADE_SECONDS - 0.10) < 1e-9
+        assert abs(BATTLE_VFX_FADE_SECONDS - 0.05) < 1e-9
         assert len(set(BATTLE_MENU_ICON_CELLS.values())) == len(BATTLE_MENU_ICON_CELLS)
         assert all(atlas_key in assets["effects"] and 0 <= row < 4
                    for atlas_key, row in BATTLE_EFFECT_SPECS.values())
